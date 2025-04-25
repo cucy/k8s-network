@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对高级路由配置 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对高级路由配置</h2>
+            <p>在 Linux 网络命名空间和 Veth 对的环境中，路由配置是实现网络连通性的关键。本页将详细介绍 Veth 对环境中的高级路由配置技术，包括静态路由、动态路由、策略路由和多路径路由等。</p>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces-basics.html">Veth 对与网络命名空间基础</a></li>
+                    <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                    <li><a href="veth-triangle-topology.html">三角形网络拓扑</a></li>
+                    <li><a href="veth-star-topology.html">星型网络拓扑</a></li>
+                    <li><a href="veth-bridge-topology.html">网桥网络拓扑</a></li>
+                    <li><a href="veth-ring-topology.html">环形网络拓扑</a></li>
+                    <li><a href="veth-hybrid-topology.html">混合网络拓扑</a></li>
+                    <li><a href="veth-routing-advanced.html" class="active">Veth 对高级路由配置</a></li>
+                    <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                    <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                    <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                    <li><a href="veth-routing-multipath.html">多路径路由配置</a></li>
+                    <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>Linux 路由基础</h2>
+            <p>在深入了解高级路由配置之前，我们需要先了解 Linux 路由的基础知识。</p>
+            
+            <h3>路由表</h3>
+            <p>Linux 系统中的路由表是一个数据结构，用于存储路由信息。每个路由表包含多个路由条目，每个条目指定了数据包的目标网络和下一跳地址。Linux 支持多个路由表，默认使用主路由表（main table，ID 为 254）。</p>
+            
+            <p>可以使用以下命令查看路由表：</p>
+            <div class="code-block">
+# 查看主路由表
+ip route show
+
+# 查看所有路由表
+ip route show table all
+
+# 查看特定路由表
+ip route show table 1
+</div>
+            
+            <h3>路由条目</h3>
+            <p>路由条目包含以下主要字段：</p>
+            <ul>
+                <li><strong>目标网络</strong>：数据包的目标 IP 地址或网络</li>
+                <li><strong>下一跳</strong>：数据包应该发送到的下一个路由器或主机</li>
+                <li><strong>输出接口</strong>：数据包应该从哪个网络接口发送</li>
+                <li><strong>度量值</strong>：路由的优先级或成本</li>
+                <li><strong>范围</strong>：路由的适用范围，如全局、链路本地等</li>
+                <li><strong>协议</strong>：添加路由的协议，如静态、OSPF、BGP 等</li>
+            </ul>
+            
+            <h3>路由查找过程</h3>
+            <p>当 Linux 内核需要发送或转发数据包时，它会按照以下步骤查找路由：</p>
+            <ol>
+                <li>检查目标 IP 地址是否是本地地址（即分配给本地接口的地址）</li>
+                <li>如果不是本地地址，则查找路由表中最具体的匹配项（最长前缀匹配）</li>
+                <li>如果找到匹配的路由，则将数据包发送到指定的下一跳或输出接口</li>
+                <li>如果没有找到匹配的路由，则使用默认路由（如果存在）</li>
+                <li>如果没有默认路由，则丢弃数据包并返回"网络不可达"错误</li>
+            </ol>
+            
+            <h3>路由缓存</h3>
+            <p>为了提高路由查找的性能，Linux 内核会缓存最近使用的路由。这样，对于相同目标的后续数据包，内核可以直接使用缓存的路由，而不需要重新查找路由表。</p>
+            
+            <p>在 Linux 3.6 之前，路由缓存是一个独立的数据结构。从 Linux 3.6 开始，路由缓存被集成到邻居子系统中，作为邻居表的一部分。</p>
+        </section>
+
+        <section>
+            <h2>高级路由配置概述</h2>
+            <p>在 Veth 对环境中，高级路由配置可以实现更复杂的网络功能，如流量分流、负载均衡、故障转移等。以下是几种常见的高级路由配置技术：</p>
+            
+            <h3>静态路由</h3>
+            <p>静态路由是最基本的路由配置方式，由管理员手动配置。静态路由简单易用，但不能自动适应网络拓扑的变化。在小型网络或拓扑稳定的网络中，静态路由是一个不错的选择。</p>
+            
+            <p>静态路由的详细配置方法将在 <a href="veth-routing-static.html">静态路由配置</a> 页面中介绍。</p>
+            
+            <h3>动态路由</h3>
+            <p>动态路由使用路由协议自动发现和维护路由。动态路由可以自动适应网络拓扑的变化，但配置更复杂，资源消耗更高。在大型网络或拓扑频繁变化的网络中，动态路由是一个更好的选择。</p>
+            
+            <p>常见的动态路由协议包括：</p>
+            <ul>
+                <li><strong>RIP (Routing Information Protocol)</strong>：一种基于距离向量的路由协议，适用于小型网络</li>
+                <li><strong>OSPF (Open Shortest Path First)</strong>：一种基于链路状态的路由协议，适用于中大型网络</li>
+                <li><strong>BGP (Border Gateway Protocol)</strong>：一种路径向量路由协议，主要用于互联网骨干网和自治系统之间的路由</li>
+            </ul>
+            
+            <p>动态路由的详细配置方法将在 <a href="veth-routing-dynamic.html">动态路由配置</a> 页面中介绍。</p>
+            
+            <h3>策略路由</h3>
+            <p>策略路由允许根据源 IP 地址、目标 IP 地址、服务类型等条件选择不同的路由。策略路由可以实现更灵活的流量控制，如基于源 IP 的流量分流、基于服务类型的优先级路由等。</p>
+            
+            <p>策略路由的详细配置方法将在 <a href="veth-routing-policy.html">策略路由配置</a> 页面中介绍。</p>
+            
+            <h3>多路径路由</h3>
+            <p>多路径路由允许数据包通过多个路径到达同一目标。多路径路由可以实现负载均衡、提高网络吞吐量、提供冗余路径等功能。</p>
+            
+            <p>多路径路由的详细配置方法将在 <a href="veth-routing-multipath.html">多路径路由配置</a> 页面中介绍。</p>
+        </section>
+
+        <section>
+            <h2>路由配置工具</h2>
+            <p>Linux 提供了多种工具来配置和管理路由。以下是一些常用的路由配置工具：</p>
+            
+            <h3>ip 命令</h3>
+            <p>ip 命令是 iproute2 包的一部分，是 Linux 中最常用的网络配置工具。它可以配置接口、路由、隧道等网络组件。</p>
+            
+            <p>常用的 ip 路由命令：</p>
+            <div class="code-block">
+# 查看路由表
+ip route show
+
+# 添加路由
+ip route add 192.168.2.0/24 via 192.168.1.1
+
+# 删除路由
+ip route del 192.168.2.0/24
+
+# 添加默认路由
+ip route add default via 192.168.1.1
+
+# 添加到特定路由表的路由
+ip route add 192.168.2.0/24 via 192.168.1.1 table 1
+
+# 添加策略路由规则
+ip rule add from 192.168.1.0/24 table 1
+</div>
+            
+            <h3>route 命令</h3>
+            <p>route 命令是一个较旧的路由配置工具，但仍然在许多系统中使用。它的功能比 ip 命令少，但语法更简单。</p>
+            
+            <p>常用的 route 命令：</p>
+            <div class="code-block">
+# 查看路由表
+route -n
+
+# 添加路由
+route add -net 192.168.2.0/24 gw 192.168.1.1
+
+# 删除路由
+route del -net 192.168.2.0/24
+
+# 添加默认路由
+route add default gw 192.168.1.1
+</div>
+            
+            <h3>配置文件</h3>
+            <p>除了命令行工具，还可以通过配置文件配置路由。不同的 Linux 发行版使用不同的配置文件格式。</p>
+            
+            <p>在 Debian/Ubuntu 系统中，可以在 /etc/network/interfaces 文件中配置路由：</p>
+            <div class="code-block">
+# /etc/network/interfaces
+auto eth0
+iface eth0 inet static
+    address 192.168.1.2
+    netmask 255.255.255.0
+    gateway 192.168.1.1
+    # 静态路由
+    up route add -net 192.168.2.0/24 gw 192.168.1.1
+    down route del -net 192.168.2.0/24
+</div>
+            
+            <p>在 Red Hat/CentOS 系统中，可以在 /etc/sysconfig/network-scripts/route-<interface> 文件中配置路由：</p>
+            <div class="code-block">
+# /etc/sysconfig/network-scripts/route-eth0
+192.168.2.0/24 via 192.168.1.1
+</div>
+            
+            <h3>动态路由软件</h3>
+            <p>对于动态路由，需要使用专门的路由软件，如：</p>
+            <ul>
+                <li><strong>Quagga/FRRouting</strong>：一个开源的路由软件套件，支持多种路由协议，如 RIP、OSPF、BGP 等</li>
+                <li><strong>BIRD</strong>：一个轻量级的路由软件，支持多种路由协议，适合资源受限的环境</li>
+                <li><strong>Zebra</strong>：Quagga 的前身，一个较旧但仍然使用的路由软件</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>路由配置最佳实践</h2>
+            <p>在 Veth 对环境中配置路由时，以下是一些最佳实践：</p>
+            
+            <h3>规划网络地址</h3>
+            <p>在配置路由之前，应该先规划好网络地址。为每个网络命名空间分配不同的子网，避免地址冲突。使用私有 IP 地址（如 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16）进行实验。</p>
+            
+            <h3>使用一致的命名约定</h3>
+            <p>为网络命名空间、Veth 对和路由表使用一致的命名约定，使配置更容易理解和管理。例如，可以使用 ns1、ns2 等命名网络命名空间，使用 veth1-1、veth1-2 等命名 Veth 对。</p>
+            
+            <h3>记录网络拓扑</h3>
+            <p>在配置复杂的网络拓扑时，应该记录网络拓扑图，包括命名空间、Veth 对、IP 地址和路由信息。这有助于理解和调试网络问题。</p>
+            
+            <h3>测试连通性</h3>
+            <p>在配置路由后，应该测试网络连通性，确保数据包可以正确路由。可以使用 ping、traceroute 等工具测试连通性。</p>
+            
+            <h3>监控和调试</h3>
+            <p>使用监控和调试工具，如 tcpdump、wireshark、netstat 等，监控网络流量和排查问题。这些工具可以帮助理解数据包的路由路径和发现潜在的问题。</p>
+            
+            <h3>自动化配置</h3>
+            <p>对于复杂的网络配置，可以使用脚本或配置管理工具自动化配置过程。这可以减少手动配置的错误，提高配置的一致性和可重复性。</p>
+        </section>
+
+        <section>
+            <h2>路由配置案例</h2>
+            <p>以下是一些常见的路由配置案例，展示了如何在不同的网络拓扑中配置路由：</p>
+            
+            <h3>案例 1：两个网络命名空间的直接连接</h3>
+            <p>这是最简单的案例，两个网络命名空间通过一对 Veth 设备直接连接。</p>
+            <div class="code-block">
+# 创建两个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+
+# 创建一对 Veth 设备
+sudo ip link add veth1 type veth peer name veth2
+
+# 将 Veth 设备分配到网络命名空间
+sudo ip link set veth1 netns ns1
+sudo ip link set veth2 netns ns2
+
+# 配置 IP 地址
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1
+sudo ip netns exec ns2 ip addr add 10.0.1.2/24 dev veth2
+
+# 启用设备
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns2 ip link set veth2 up
+sudo ip netns exec ns1 ip link set lo up
+sudo ip netns exec ns2 ip link set lo up
+
+# 测试连通性
+sudo ip netns exec ns1 ping 10.0.1.2
+</div>
+            
+            <p>在这个案例中，不需要额外的路由配置，因为两个命名空间在同一个子网中。</p>
+            
+            <h3>案例 2：三个网络命名空间的间接连接</h3>
+            <p>这个案例中，ns1 和 ns3 通过 ns2 间接连接。</p>
+            <div class="code-block">
+# 创建三个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+sudo ip netns add ns3
+
+# 创建两对 Veth 设备
+sudo ip link add veth1 type veth peer name veth2
+sudo ip link add veth3 type veth peer name veth4
+
+# 将 Veth 设备分配到网络命名空间
+sudo ip link set veth1 netns ns1
+sudo ip link set veth2 netns ns2
+sudo ip link set veth3 netns ns2
+sudo ip link set veth4 netns ns3
+
+# 配置 IP 地址
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1
+sudo ip netns exec ns2 ip addr add 10.0.1.2/24 dev veth2
+sudo ip netns exec ns2 ip addr add 10.0.2.1/24 dev veth3
+sudo ip netns exec ns3 ip addr add 10.0.2.2/24 dev veth4
+
+# 启用设备
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns2 ip link set veth2 up
+sudo ip netns exec ns2 ip link set veth3 up
+sudo ip netns exec ns3 ip link set veth4 up
+sudo ip netns exec ns1 ip link set lo up
+sudo ip netns exec ns2 ip link set lo up
+sudo ip netns exec ns3 ip link set lo up
+
+# 启用 IP 转发
+sudo ip netns exec ns2 sysctl -w net.ipv4.ip_forward=1
+
+# 配置路由
+sudo ip netns exec ns1 ip route add 10.0.2.0/24 via 10.0.1.2
+sudo ip netns exec ns3 ip route add 10.0.1.0/24 via 10.0.2.1
+
+# 测试连通性
+sudo ip netns exec ns1 ping 10.0.2.2
+</div>
+            
+            <p>在这个案例中，需要在 ns1 和 ns3 中配置路由，使它们可以通过 ns2 相互通信。同时，需要在 ns2 中启用 IP 转发，使它可以转发 ns1 和 ns3 之间的数据包。</p>
+            
+            <h3>更多案例</h3>
+            <p>更多复杂的路由配置案例将在以下页面中介绍：</p>
+            <ul>
+                <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                <li><a href="veth-routing-multipath.html">多路径路由配置</a></li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <ul>
+                <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                <li><a href="veth-triangle-topology.html">三角形网络拓扑</a></li>
+                <li><a href="veth-star-topology.html">星型网络拓扑</a></li>
+                <li><a href="veth-bridge-topology.html">网桥网络拓扑</a></li>
+                <li><a href="veth-ring-topology.html">环形网络拓扑</a></li>
+                <li><a href="veth-hybrid-topology.html">混合网络拓扑</a></li>
+                <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                <li><a href="veth-routing-multipath.html">多路径路由配置</a></li>
+                <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+            </ul>
+            <div class="navigation-buttons">
+                <a href="veth-hybrid-topology.html" class="button">上一页：混合网络拓扑</a>
+                <a href="veth-routing-static.html" class="button">下一页：静态路由配置</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

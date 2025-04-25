@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WireGuard作为Overlay网络 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="overlay-networks.html">Overlay 网络</a></li>
+                    <li><a href="geneve-technology.html">Geneve 技术</a></li>
+                    <li><a href="wireguard-overlay.html" class="active">WireGuard</a></li>
+                    <li><a href="network-troubleshooting.html">网络故障排查</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>WireGuard作为Kubernetes Overlay网络</h2>
+            <p>WireGuard是一种现代、快速且安全的VPN技术，近年来在Kubernetes网络中的应用越来越广泛。作为一种轻量级的加密隧道技术，WireGuard提供了安全性与性能的平衡，使其成为Kubernetes集群中实现Overlay网络的理想选择，特别是在需要加密通信的场景中。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/wireguard-overlay.svg" class="diagram">
+                    WireGuard Overlay网络架构
+                </object>
+            </div>
+            <p class="diagram-caption">图1: WireGuard作为Kubernetes Overlay网络的架构</p>
+        </section>
+
+        <section>
+            <h2>WireGuard简介</h2>
+            <p>WireGuard是一个极简的VPN协议，最初由Jason A. Donenfeld开发，现已被纳入Linux内核主线（自5.6版本起）。与传统的VPN技术相比，WireGuard具有以下特点：</p>
+            
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>简洁高效</h3>
+                    <p>WireGuard的代码库仅约4000行，远小于OpenVPN或IPsec，使其更易于审计和维护。</p>
+                </div>
+                <div class="feature">
+                    <h3>高性能</h3>
+                    <p>WireGuard在内核空间运行，提供接近裸机的性能，延迟低，吞吐量高。</p>
+                </div>
+                <div class="feature">
+                    <h3>现代密码学</h3>
+                    <p>使用ChaCha20、Poly1305、BLAKE2、Curve25519等现代密码学算法，提供强大的安全保障。</p>
+                </div>
+                <div class="feature">
+                    <h3>简单配置</h3>
+                    <p>配置类似SSH，使用公钥/私钥对进行身份验证，无需复杂的证书管理。</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>WireGuard与传统Overlay技术对比</h2>
+            <p>相比VXLAN、Geneve、IPinIP等传统Overlay技术，WireGuard提供了一些独特的优势，特别是在安全性方面。</p>
+            
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>特性</th>
+                            <th>WireGuard</th>
+                            <th>VXLAN</th>
+                            <th>IPinIP</th>
+                            <th>GRE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>内置加密</td>
+                            <td>✓</td>
+                            <td>✗</td>
+                            <td>✗</td>
+                            <td>✗</td>
+                        </tr>
+                        <tr>
+                            <td>内核集成</td>
+                            <td>✓ (5.6+)</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                        </tr>
+                        <tr>
+                            <td>封装开销</td>
+                            <td>中等</td>
+                            <td>高</td>
+                            <td>低</td>
+                            <td>中等</td>
+                        </tr>
+                        <tr>
+                            <td>多租户支持</td>
+                            <td>有限</td>
+                            <td>✓ (VNI)</td>
+                            <td>✗</td>
+                            <td>有限</td>
+                        </tr>
+                        <tr>
+                            <td>NAT穿透</td>
+                            <td>✓</td>
+                            <td>有限</td>
+                            <td>有限</td>
+                            <td>有限</td>
+                        </tr>
+                        <tr>
+                            <td>硬件卸载</td>
+                            <td>有限</td>
+                            <td>广泛支持</td>
+                            <td>部分支持</td>
+                            <td>部分支持</td>
+                        </tr>
+                        <tr>
+                            <td>部署复杂度</td>
+                            <td>低</td>
+                            <td>中等</td>
+                            <td>低</td>
+                            <td>低</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="info-box">
+                <h3>何时选择WireGuard？</h3>
+                <p>在以下场景中，WireGuard可能是更好的Overlay网络选择：</p>
+                <ul>
+                    <li>需要端到端加密的安全敏感环境</li>
+                    <li>边缘计算场景，资源有限且网络环境复杂</li>
+                    <li>跨公共互联网的Kubernetes集群互联</li>
+                    <li>需要简化网络配置和管理的环境</li>
+                    <li>对网络延迟敏感的应用场景</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>WireGuard在Kubernetes中的实现</h2>
+            <p>目前，有几种方式可以在Kubernetes中使用WireGuard作为Overlay网络：</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">Calico + WireGuard</div>
+                    <div class="accordion-content">
+                        <p>Calico是一个流行的Kubernetes CNI插件，从v3.13开始支持WireGuard作为加密隧道选项。</p>
+                        <h4>启用方法：</h4>
+                        <div class="code-block">
+# 确保节点已安装WireGuard
+# 在Debian/Ubuntu上：
+apt-get install wireguard
+
+# 在CentOS/RHEL 8上：
+dnf install wireguard-tools
+
+# 在Calico中启用WireGuard
+kubectl patch felixconfiguration default --type='merge' -p '{"spec":{"wireguardEnabled":true}}'
+
+# 验证WireGuard是否启用
+kubectl get node -o yaml | grep -i wireguard
+                        </div>
+                        <p>Calico会自动为每个节点生成WireGuard密钥，并建立加密隧道。所有Pod间的跨节点流量都将通过WireGuard隧道加密传输。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">Cilium + WireGuard</div>
+                    <div class="accordion-content">
+                        <p>Cilium是一个基于eBPF的CNI插件，从v1.10开始支持WireGuard加密。</p>
+                        <h4>启用方法：</h4>
+                        <div class="code-block">
+# 使用Helm安装Cilium时启用WireGuard
+helm install cilium cilium/cilium --version 1.11.6 \
+  --namespace kube-system \
+  --set encryption.enabled=true \
+  --set encryption.type=wireguard
+
+# 或在现有Cilium部署中启用
+kubectl patch configmap cilium-config -n kube-system --type merge \
+  --patch '{"data":{"enable-wireguard":"true"}}'
+                        </div>
+                        <p>Cilium结合WireGuard和eBPF技术，提供了高性能的加密网络解决方案。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">自定义WireGuard Overlay</div>
+                    <div class="accordion-content">
+                        <p>对于高级用户，可以构建自定义的WireGuard Overlay网络，例如使用DaemonSet在每个节点上部署WireGuard并配置路由。</p>
+                        <h4>基本步骤：</h4>
+                        <ol>
+                            <li>在每个节点上创建WireGuard接口</li>
+                            <li>配置节点间的WireGuard对等连接</li>
+                            <li>设置Pod CIDR的路由规则，通过WireGuard接口转发</li>
+                            <li>配置iptables规则以处理SNAT/DNAT</li>
+                        </ol>
+                        <p>这种方法提供了最大的灵活性，但需要更多的手动配置和维护。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">NetBird</div>
+                    <div class="accordion-content">
+                        <p>NetBird是一个基于WireGuard的网络解决方案，可以简化Kubernetes集群的互联。</p>
+                        <h4>特点：</h4>
+                        <ul>
+                            <li>自动密钥管理和对等发现</li>
+                            <li>NAT穿透能力</li>
+                            <li>集中式管理界面</li>
+                            <li>支持多集群连接</li>
+                        </ul>
+                        <p>NetBird特别适合跨云环境和边缘计算场景。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>WireGuard Overlay网络实践</h2>
+            <p>以下是在Kubernetes集群中实现WireGuard Overlay网络的实践指南。</p>
+            
+            <div class="experiment-card">
+                <h3>实验：使用Calico和WireGuard建立加密Overlay网络</h3>
+                <p>本实验将指导您在Kubernetes集群中部署Calico CNI插件，并启用WireGuard加密。</p>
+                <h4>前提条件：</h4>
+                <ul>
+                    <li>运行Linux内核5.6+的Kubernetes集群</li>
+                    <li>节点上已安装WireGuard内核模块</li>
+                    <li>集群管理员权限</li>
+                </ul>
+                <h4>步骤：</h4>
+                <div class="code-block">
+# 1. 安装Calico CNI
+kubectl create -f https://docs.projectcalico.org/manifests/tigera-operator.yaml
+kubectl create -f https://docs.projectcalico.org/manifests/custom-resources.yaml
+
+# 2. 等待Calico组件就绪
+kubectl wait --namespace calico-system \
+  --for=condition=ready pod \
+  --selector=k8s-app=calico-node \
+  --timeout=90s
+
+# 3. 启用WireGuard加密
+kubectl patch felixconfiguration default --type='merge' -p '{"spec":{"wireguardEnabled":true}}'
+
+# 4. 验证WireGuard状态
+kubectl get nodes -o custom-columns=NAME:.metadata.name,WIREGUARD:.status.conditions[?(@.type==\'WireGuardEnabled\')].status
+
+# 5. 在节点上检查WireGuard接口
+# 登录到节点
+ssh <node-ip>
+sudo wg show
+                </div>
+                <h4>验证加密：</h4>
+                <div class="code-block">
+# 在节点上捕获WireGuard流量
+sudo tcpdump -i wg-calico -n
+
+# 在两个Pod之间生成流量
+kubectl exec -it <pod1> -- ping <pod2-ip>
+
+# 应该能看到加密的UDP流量，而不是明文ICMP包
+                </div>
+                <p>成功完成后，所有跨节点的Pod流量都将通过WireGuard加密隧道传输，提供端到端的安全通信。</p>
+            </div>
+            
+            <div class="tips-container">
+                <div class="tip">
+                    <h3>性能优化</h3>
+                    <p>WireGuard虽然已经很高效，但在高负载环境中仍可以进一步优化：</p>
+                    <ul>
+                        <li>增加WireGuard接收队列大小</li>
+                        <li>调整MTU以避免分片</li>
+                        <li>在支持的CPU上启用硬件加速</li>
+                    </ul>
+                    <div class="code-block">
+# 调整WireGuard接收队列
+echo 1024 > /proc/sys/net/core/netdev_max_backlog
+
+# 优化MTU设置（通常比物理接口MTU小80字节左右）
+ip link set mtu 1420 dev wg0
+
+# 检查CPU是否支持AES-NI（Intel）或ARMv8 Crypto Extensions（ARM）
+grep -m1 -o aes /proc/cpuinfo
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>故障排查</h3>
+                    <p>WireGuard Overlay网络的常见问题及解决方法：</p>
+                    <ul>
+                        <li>确保所有节点都安装了WireGuard内核模块</li>
+                        <li>检查WireGuard接口状态和对等配置</li>
+                        <li>验证UDP端口51820（默认）是否开放</li>
+                        <li>检查节点间的网络连通性</li>
+                    </ul>
+                    <div class="code-block">
+# 检查WireGuard模块是否加载
+lsmod | grep wireguard
+
+# 检查WireGuard接口状态
+sudo wg show
+
+# 检查UDP端口是否开放
+sudo netstat -anpu | grep 51820
+
+# 测试节点间连通性
+ping <peer-node-ip>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>WireGuard Overlay网络的安全考虑</h2>
+            <p>WireGuard提供了强大的加密功能，但在Kubernetes环境中使用时仍需考虑一些安全因素：</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">密钥管理</div>
+                    <div class="accordion-content">
+                        <p>WireGuard使用公钥/私钥对进行身份验证和加密。在Kubernetes环境中，密钥管理至关重要：</p>
+                        <ul>
+                            <li>私钥应妥善保护，避免泄露</li>
+                            <li>考虑使用Kubernetes Secrets存储密钥</li>
+                            <li>实施定期密钥轮换机制</li>
+                            <li>使用外部密钥管理系统（如HashiCorp Vault）增强安全性</li>
+                        </ul>
+                        <p>大多数CNI插件（如Calico）会自动处理WireGuard密钥的生成和分发，但了解底层机制仍然很重要。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">网络策略</div>
+                    <div class="accordion-content">
+                        <p>虽然WireGuard提供了传输层加密，但仍需要网络策略来控制Pod间的通信：</p>
+                        <div class="code-block">
+# 示例：限制命名空间间通信的NetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-other-namespaces
+  namespace: production
+spec:
+  podSelector: {}
+  ingress:
+  - from:
+    - podSelector: {}  # 只允许同一命名空间内的Pod通信
+                        </div>
+                        <p>WireGuard加密与网络策略是互补的安全层：WireGuard保护数据传输安全，网络策略控制通信权限。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">审计与监控</div>
+                    <div class="accordion-content">
+                        <p>加密流量难以进行深度包检测，因此需要其他方式来监控网络活动：</p>
+                        <ul>
+                            <li>在WireGuard接口层面收集流量统计</li>
+                            <li>使用eBPF程序监控网络活动</li>
+                            <li>实施端点安全监控</li>
+                            <li>收集和分析WireGuard日志</li>
+                        </ul>
+                        <div class="code-block">
+# 查看WireGuard接口统计
+ip -s link show wg0
+
+# 使用bpftrace监控WireGuard活动
+sudo bpftrace -e 'kprobe:wireguard_xmit { printf("WireGuard packet sent\n"); }'
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>WireGuard Overlay的未来发展</h2>
+            <p>随着WireGuard技术的成熟和广泛采用，我们可以预见以下发展趋势：</p>
+            
+            <div class="trends-container">
+                <div class="trend">
+                    <h3>与eBPF的深度集成</h3>
+                    <p>WireGuard与eBPF技术的结合将带来更高效的网络处理和更细粒度的控制。Cilium已经开始这方面的探索，未来可能会有更多创新。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>多集群网络标准</h3>
+                    <p>WireGuard可能成为跨集群、跨云Kubernetes网络的标准解决方案，特别是在需要安全通信的场景中。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>硬件加速支持</h3>
+                    <p>随着网络硬件厂商增加对WireGuard的支持，我们可能会看到更多的硬件加速选项，进一步提高性能。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>边缘计算应用</h3>
+                    <p>WireGuard的轻量级特性使其非常适合边缘计算场景，未来可能会看到更多针对边缘Kubernetes集群的WireGuard网络解决方案。</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="related-topics">
+            <h2>相关主题</h2>
+            <div class="topic-cards">
+                <a href="overlay-networks.html" class="topic-card">
+                    <h3>Overlay网络概述</h3>
+                    <p>了解Kubernetes中Overlay网络的基本概念和常见实现</p>
+                </a>
+                <a href="geneve-technology.html" class="topic-card">
+                    <h3>Geneve技术详解</h3>
+                    <p>深入了解Geneve Overlay网络技术及其在Kubernetes中的应用</p>
+                </a>
+                <a href="network-troubleshooting.html" class="topic-card">
+                    <h3>网络故障排查</h3>
+                    <p>Kubernetes网络问题的系统排查方法和工具</p>
+                </a>
+                <a href="network-security.html" class="topic-card">
+                    <h3>网络安全</h3>
+                    <p>Kubernetes网络安全最佳实践和实现方法</p>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Service 网络 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html" class="active">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Service 网络原理</h2>
+            <p>Service是Kubernetes中的核心概念，它提供了一种抽象，使得一组Pod可以作为一个服务被访问。Service解决了Pod IP不稳定和负载均衡的问题。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/service-network.svg" class="diagram">
+                    Service 网络示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>为什么需要Service？</h2>
+            <p>在Kubernetes中，Pod是临时的，可能随时被创建、销毁或重新调度：</p>
+            <ul>
+                <li>Pod的IP地址是不稳定的，每次重启都可能变化</li>
+                <li>应用需要一种方式来发现和连接到动态变化的Pod</li>
+                <li>需要在多个Pod之间进行负载均衡</li>
+                <li>需要为一组Pod提供统一的访问入口</li>
+            </ul>
+            <p>Service正是为了解决这些问题而设计的，它提供了一个稳定的网络端点，使得客户端可以可靠地访问一组Pod，而不必关心这些Pod的具体位置和数量。</p>
+        </section>
+
+        <section>
+            <h2>Service 工作原理</h2>
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Service 类型</div>
+                    <div class="tab">Service 发现</div>
+                    <div class="tab">kube-proxy</div>
+                    <div class="tab">iptables 模式</div>
+                    <div class="tab">IPVS 模式</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>Service 类型</h3>
+                        <p>Kubernetes提供了多种Service类型，以满足不同的访问需求：</p>
+                        <ul>
+                            <li><strong>ClusterIP</strong>：默认类型，分配一个集群内部IP，只能在集群内部访问</li>
+                            <li><strong>NodePort</strong>：在ClusterIP的基础上，在每个节点上开放一个端口，可以通过节点IP:端口访问</li>
+                            <li><strong>LoadBalancer</strong>：在NodePort的基础上，使用云提供商的负载均衡器，为Service提供外部IP</li>
+                            <li><strong>ExternalName</strong>：将Service映射到一个DNS名称，通过CNAME记录实现</li>
+                            <li><strong>Headless Service</strong>：不分配ClusterIP，直接返回所有Pod的IP地址</li>
+                        </ul>
+                        <div class="code-block">
+# ClusterIP Service 示例
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80
+    targetPort: 9376
+  type: ClusterIP
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Service 发现</h3>
+                        <p>Kubernetes提供了两种主要的Service发现机制：</p>
+                        
+                        <h4>1. 环境变量</h4>
+                        <p>当Pod启动时，kubelet会为每个活跃的Service设置一系列环境变量。例如，对于名为"redis-master"的Service，会设置以下环境变量：</p>
+                        <div class="code-block">
+REDIS_MASTER_SERVICE_HOST=10.0.0.11
+REDIS_MASTER_SERVICE_PORT=6379
+REDIS_MASTER_PORT=tcp://10.0.0.11:6379
+REDIS_MASTER_PORT_6379_TCP=tcp://10.0.0.11:6379
+REDIS_MASTER_PORT_6379_TCP_PROTO=tcp
+REDIS_MASTER_PORT_6379_TCP_PORT=6379
+REDIS_MASTER_PORT_6379_TCP_ADDR=10.0.0.11
+                        </div>
+                        
+                        <h4>2. DNS</h4>
+                        <p>Kubernetes DNS服务为每个Service创建DNS记录。Pod可以通过Service名称访问Service，格式为：</p>
+                        <div class="code-block">
+<service-name>.<namespace>.svc.cluster.local
+                        </div>
+                        <p>例如，在"default"命名空间中的"my-service"可以通过以下方式访问：</p>
+                        <div class="code-block">
+# 同一命名空间中
+curl my-service
+
+# 跨命名空间访问
+curl my-service.default.svc.cluster.local
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>kube-proxy</h3>
+                        <p>kube-proxy是Kubernetes中负责实现Service网络功能的组件，它在每个节点上运行，监听API服务器上Service和Endpoint的变化，并维护网络规则，确保到Service的流量能够正确地转发到后端Pod。</p>
+                        
+                        <p>kube-proxy有三种工作模式：</p>
+                        <ul>
+                            <li><strong>userspace模式</strong>：最早的实现方式，kube-proxy作为代理，将请求转发到后端Pod</li>
+                            <li><strong>iptables模式</strong>：默认模式，使用Linux内核的iptables规则来实现转发和负载均衡</li>
+                            <li><strong>IPVS模式</strong>：高性能模式，使用Linux内核的IPVS（IP Virtual Server）来实现负载均衡</li>
+                        </ul>
+                        
+                        <p>kube-proxy的主要职责包括：</p>
+                        <ul>
+                            <li>监听Service和Endpoint对象的变化</li>
+                            <li>为每个Service创建网络规则，实现流量转发</li>
+                            <li>在后端Pod之间实现负载均衡</li>
+                            <li>处理Service的会话亲和性（Session Affinity）</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>iptables 模式</h3>
+                        <p>iptables模式是kube-proxy的默认工作模式，它使用Linux内核的iptables规则来实现Service的网络功能。</p>
+                        
+                        <h4>工作流程：</h4>
+                        <ol>
+                            <li>当创建Service时，kube-proxy会为该Service创建一个虚拟IP（ClusterIP）</li>
+                            <li>kube-proxy监听API服务器上Service和Endpoint的变化</li>
+                            <li>对于每个Service，kube-proxy在iptables的PREROUTING和OUTPUT链中添加规则，将目的地为Service ClusterIP的流量重定向到KUBE-SERVICES链</li>
+                            <li>在KUBE-SERVICES链中，为每个Service创建规则，将流量重定向到对应的KUBE-SVC-XXX链</li>
+                            <li>在KUBE-SVC-XXX链中，创建多条规则，以概率方式将流量分发到KUBE-SEP-XXX链（实现负载均衡）</li>
+                            <li>在KUBE-SEP-XXX链中，使用DNAT将目的地址修改为后端Pod的IP和端口</li>
+                        </ol>
+                        
+                        <div class="code-block">
+# 查看与Service相关的iptables规则
+sudo iptables -t nat -L KUBE-SERVICES -n
+sudo iptables -t nat -L KUBE-SVC-XXX -n
+sudo iptables -t nat -L KUBE-SEP-XXX -n
+                        </div>
+                        
+                        <h4>优缺点：</h4>
+                        <ul>
+                            <li><strong>优点</strong>：使用内核空间处理，性能较好；不需要额外的代理进程</li>
+                            <li><strong>缺点</strong>：规则复杂度随着Service和Pod数量增加而线性增长；规则更新时可能会有短暂的连接中断</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>IPVS 模式</h3>
+                        <p>IPVS（IP Virtual Server）模式是kube-proxy的高性能模式，专为大规模集群设计，提供更好的可扩展性和性能。</p>
+                        
+                        <h4>工作流程：</h4>
+                        <ol>
+                            <li>当创建Service时，kube-proxy会为该Service创建一个IPVS虚拟服务器</li>
+                            <li>kube-proxy监听API服务器上Service和Endpoint的变化</li>
+                            <li>对于每个Service Endpoint，创建对应的IPVS真实服务器</li>
+                            <li>IPVS使用哈希表作为数据结构，通过虚拟IP将流量转发到真实服务器</li>
+                        </ol>
+                        
+                        <p>IPVS支持多种负载均衡算法：</p>
+                        <ul>
+                            <li>轮询（Round Robin）</li>
+                            <li>最小连接（Least Connection）</li>
+                            <li>目的地哈希（Destination Hashing）</li>
+                            <li>源地址哈希（Source Hashing）</li>
+                            <li>加权轮询（Weighted Round Robin）</li>
+                            <li>加权最小连接（Weighted Least Connection）</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 启用IPVS模式
+# 在kube-proxy的ConfigMap中设置
+mode: ipvs
+
+# 查看IPVS规则
+sudo ipvsadm -ln
+                        </div>
+                        
+                        <h4>优缺点：</h4>
+                        <ul>
+                            <li><strong>优点</strong>：使用哈希表，性能更好，规则查找复杂度为O(1)；支持更多的负载均衡算法；可以处理更多的Service</li>
+                            <li><strong>缺点</strong>：需要安装额外的IPVS内核模块；配置相对复杂</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Service 网络实现细节</h2>
+            
+            <div class="interactive">
+                <h3>ClusterIP 实现</h3>
+                <p>ClusterIP是一个虚拟IP，不绑定到任何网络接口，只存在于iptables或IPVS规则中。当流量发送到ClusterIP时，会被重定向到后端Pod。</p>
+                
+                <h4>ClusterIP地址分配：</h4>
+                <p>ClusterIP从Service CIDR（通常是10.96.0.0/12或10.0.0.0/16）中分配，这个CIDR与Pod CIDR不同，专门用于Service。</p>
+                
+                <h4>Service端口映射：</h4>
+                <p>Service可以将一个端口映射到Pod的不同端口，例如：</p>
+                <div class="code-block">
+spec:
+  ports:
+  - name: http
+    port: 80        # Service端口
+    targetPort: 8080 # Pod端口
+                </div>
+                
+                <h3>NodePort 实现</h3>
+                <p>NodePort在ClusterIP的基础上，在每个节点上开放一个端口（默认范围：30000-32767），将该端口的流量转发到对应的Service。</p>
+                
+                <h4>工作流程：</h4>
+                <ol>
+                    <li>在每个节点上，kube-proxy监听指定的NodePort</li>
+                    <li>当流量到达节点的NodePort时，通过iptables或IPVS规则将流量重定向到Service的ClusterIP</li>
+                    <li>然后按照ClusterIP的规则，将流量转发到后端Pod</li>
+                </ol>
+            </div>
+        </section>
+
+        <section>
+            <h2>Service 网络排障</h2>
+            <p>在排查Service网络问题时，可以使用以下命令和工具：</p>
+            
+            <div class="experiment-card">
+                <h3>常用Service排障命令</h3>
+                <div class="code-block">
+# 查看Service详情
+kubectl get service my-service -o yaml
+
+# 查看Service的Endpoints
+kubectl get endpoints my-service
+
+# 检查Service是否有选择到Pod
+kubectl get pods --selector=app=MyApp
+
+# 测试Service连通性
+kubectl run -it --rm --restart=Never busybox --image=busybox -- wget -O- my-service:80
+
+# 查看kube-proxy日志
+kubectl logs -n kube-system -l k8s-app=kube-proxy
+
+# 查看iptables规则
+sudo iptables-save | grep my-service
+
+# 查看IPVS规则
+sudo ipvsadm -ln
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Service 高级功能</h2>
+            <p>Kubernetes Service还提供了一些高级功能：</p>
+            
+            <h3>1. 会话亲和性</h3>
+            <p>可以配置Service将来自同一客户端的请求始终发送到同一个Pod：</p>
+            <div class="code-block">
+spec:
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+            </div>
+            
+            <h3>2. 多端口Service</h3>
+            <p>一个Service可以暴露多个端口：</p>
+            <div class="code-block">
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  - name: https
+    port: 443
+    targetPort: 8443
+            </div>
+            
+            <h3>3. 外部服务</h3>
+            <p>Service可以指向集群外部的服务：</p>
+            <div class="code-block">
+kind: Service
+apiVersion: v1
+metadata:
+  name: external-service
+spec:
+  type: ExternalName
+  externalName: api.example.com
+            </div>
+            
+            <h3>4. 无头服务（Headless Service）</h3>
+            <p>当不需要负载均衡和单一Service IP时，可以创建"无头"Service：</p>
+            <div class="code-block">
+spec:
+  clusterIP: None
+  selector:
+    app: MyApp
+            </div>
+            <p>DNS查询将直接返回所有Pod的IP地址，而不是Service的ClusterIP。</p>
+        </section>
+
+        <section>
+            <p>Service网络是Kubernetes网络模型中的重要组成部分，它提供了稳定的网络端点和负载均衡功能。在实际应用中，Service通常与Ingress结合使用，为应用提供完整的网络访问解决方案。</p>
+            <a href="ingress.html" class="button">了解Ingress网络</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

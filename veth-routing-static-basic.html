@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对基本静态路由 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对基本静态路由</h2>
+            <p>本页将详细介绍 Veth 对环境中的基本静态路由配置，包括直接连接的网络命名空间之间的路由配置和简单的多跳路由配置。通过这些基础知识，您将能够理解和实现更复杂的网络拓扑。</p>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces-basics.html">Veth 对与网络命名空间基础</a></li>
+                    <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                    <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                    <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                    <li><a href="veth-routing-static-basic.html" class="active">基本静态路由</a></li>
+                    <li><a href="veth-routing-static-advanced.html">高级静态路由</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>直接连接的网络命名空间</h2>
+            <p>最简单的 Veth 对配置是两个网络命名空间通过一对 Veth 设备直接连接。在这种情况下，路由配置非常简单，因为两个命名空间在同一个子网中。</p>
+            
+            <h3>实验拓扑</h3>
+            <p>实验拓扑如下：</p>
+            <ul>
+                <li>ns1：10.0.1.1/24，连接到 ns2</li>
+                <li>ns2：10.0.1.2/24，连接到 ns1</li>
+            </ul>
+            
+            <h3>实验步骤</h3>
+            <div class="code-block">
+# 步骤 1：创建两个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <div class="code-block">
+# 步骤 2：创建一对 Veth 设备
+sudo ip link add veth1 type veth peer name veth2
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <div class="code-block">
+# 步骤 3：将 Veth 设备分配到相应的网络命名空间
+sudo ip link set veth1 netns ns1
+sudo ip link set veth2 netns ns2
+
+# 验证分配结果
+sudo ip netns exec ns1 ip link show
+sudo ip netns exec ns2 ip link show
+</div>
+            
+            <div class="code-block">
+# 步骤 4：配置 IP 地址
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1
+sudo ip netns exec ns2 ip addr add 10.0.1.2/24 dev veth2
+
+# 启用设备
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns2 ip link set veth2 up
+sudo ip netns exec ns1 ip link set lo up
+sudo ip netns exec ns2 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 5：测试连通性
+sudo ip netns exec ns1 ping -c 3 10.0.1.2
+sudo ip netns exec ns2 ping -c 3 10.0.1.1
+</div>
+            
+            <p>在这个实验中，我们不需要配置额外的路由，因为两个命名空间在同一个子网中。Linux 内核会自动添加连接路由，使设备可以直接通信。</p>
+            
+            <h3>查看路由表</h3>
+            <p>让我们查看两个命名空间的路由表：</p>
+            <div class="code-block">
+# 查看 ns1 的路由表
+sudo ip netns exec ns1 ip route
+
+# 查看 ns2 的路由表
+sudo ip netns exec ns2 ip route
+</div>
+            
+            <p>您会看到类似以下的输出：</p>
+            <div class="code-block">
+# ns1 的路由表
+10.0.1.0/24 dev veth1 proto kernel scope link src 10.0.1.1
+
+# ns2 的路由表
+10.0.1.0/24 dev veth2 proto kernel scope link src 10.0.1.2
+</div>
+            
+            <p>这些路由表项是 Linux 内核自动添加的连接路由，它们指示内核通过特定设备直接发送数据包到目标网络。</p>
+        </section>
+
+        <section>
+            <h2>简单的多跳路由</h2>
+            <p>在更复杂的网络拓扑中，数据包可能需要经过多个节点才能到达目标。这就需要配置静态路由，指导数据包的转发路径。</p>
+            
+            <h3>实验拓扑</h3>
+            <p>实验拓扑如下：</p>
+            <ul>
+                <li>ns1：10.0.1.1/24，连接到 ns2</li>
+                <li>ns2：10.0.1.2/24 和 10.0.2.1/24，连接到 ns1 和 ns3</li>
+                <li>ns3：10.0.2.2/24，连接到 ns2</li>
+            </ul>
+            
+            <h3>实验步骤</h3>
+            <div class="code-block">
+# 步骤 1：创建三个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+sudo ip netns add ns3
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <div class="code-block">
+# 步骤 2：创建两对 Veth 设备
+# ns1 和 ns2 之间的 Veth 对
+sudo ip link add veth1-1 type veth peer name veth1-2
+
+# ns2 和 ns3 之间的 Veth 对
+sudo ip link add veth2-2 type veth peer name veth2-3
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <div class="code-block">
+# 步骤 3：将 Veth 设备分配到相应的网络命名空间
+# ns1 的设备
+sudo ip link set veth1-1 netns ns1
+
+# ns2 的设备
+sudo ip link set veth1-2 netns ns2
+sudo ip link set veth2-2 netns ns2
+
+# ns3 的设备
+sudo ip link set veth2-3 netns ns3
+
+# 验证分配结果
+sudo ip netns exec ns1 ip link show
+sudo ip netns exec ns2 ip link show
+sudo ip netns exec ns3 ip link show
+</div>
+            
+            <div class="code-block">
+# 步骤 4：配置 IP 地址
+# ns1 的设备
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1-1
+sudo ip netns exec ns1 ip link set veth1-1 up
+sudo ip netns exec ns1 ip link set lo up
+
+# ns2 的设备
+sudo ip netns exec ns2 ip addr add 10.0.1.2/24 dev veth1-2
+sudo ip netns exec ns2 ip addr add 10.0.2.1/24 dev veth2-2
+sudo ip netns exec ns2 ip link set veth1-2 up
+sudo ip netns exec ns2 ip link set veth2-2 up
+sudo ip netns exec ns2 ip link set lo up
+
+# ns3 的设备
+sudo ip netns exec ns3 ip addr add 10.0.2.2/24 dev veth2-3
+sudo ip netns exec ns3 ip link set veth2-3 up
+sudo ip netns exec ns3 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2 ip addr
+sudo ip netns exec ns3 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 5：启用 IP 转发
+sudo ip netns exec ns2 sysctl -w net.ipv4.ip_forward=1
+
+# 验证 IP 转发是否启用
+sudo ip netns exec ns2 sysctl net.ipv4.ip_forward
+</div>
+            
+            <div class="code-block">
+# 步骤 6：配置静态路由
+# ns1 的路由
+sudo ip netns exec ns1 ip route add 10.0.2.0/24 via 10.0.1.2
+
+# ns3 的路由
+sudo ip netns exec ns3 ip route add 10.0.1.0/24 via 10.0.2.1
+
+# 验证路由配置
+sudo ip netns exec ns1 ip route
+sudo ip netns exec ns2 ip route
+sudo ip netns exec ns3 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 7：测试连通性
+# 从 ns1 到 ns2
+sudo ip netns exec ns1 ping -c 3 10.0.1.2
+
+# 从 ns1 到 ns3
+sudo ip netns exec ns1 ping -c 3 10.0.2.2
+
+# 从 ns3 到 ns2
+sudo ip netns exec ns3 ping -c 3 10.0.2.1
+
+# 从 ns3 到 ns1
+sudo ip netns exec ns3 ping -c 3 10.0.1.1
+</div>
+            
+            <p>在这个实验中，我们配置了静态路由，使 ns1 和 ns3 可以通过 ns2 相互通信。ns2 充当路由器，转发 ns1 和 ns3 之间的数据包。</p>
+            
+            <h3>路由表分析</h3>
+            <p>让我们分析三个命名空间的路由表：</p>
+            <div class="code-block">
+# ns1 的路由表
+10.0.1.0/24 dev veth1-1 proto kernel scope link src 10.0.1.1
+10.0.2.0/24 via 10.0.1.2 dev veth1-1
+
+# ns2 的路由表
+10.0.1.0/24 dev veth1-2 proto kernel scope link src 10.0.1.2
+10.0.2.0/24 dev veth2-2 proto kernel scope link src 10.0.2.1
+
+# ns3 的路由表
+10.0.1.0/24 via 10.0.2.1 dev veth2-3
+10.0.2.0/24 dev veth2-3 proto kernel scope link src 10.0.2.2
+</div>
+            
+            <p>在 ns1 的路由表中，10.0.2.0/24 网络的路由指向 10.0.1.2（ns2 的 IP 地址）。这意味着发往 10.0.2.0/24 网络的数据包将发送到 ns2。</p>
+            
+            <p>在 ns3 的路由表中，10.0.1.0/24 网络的路由指向 10.0.2.1（ns2 的 IP 地址）。这意味着发往 10.0.1.0/24 网络的数据包将发送到 ns2。</p>
+            
+            <p>在 ns2 的路由表中，有两个连接路由，分别指向 10.0.1.0/24 和 10.0.2.0/24 网络。这使 ns2 可以直接访问这两个网络，并转发它们之间的数据包。</p>
+        </section>
+
+        <section>
+            <h2>默认路由配置</h2>
+            <p>在实际网络中，通常会配置默认路由，指示数据包的默认转发路径。默认路由用于处理没有特定路由的目标网络。</p>
+            
+            <h3>实验拓扑</h3>
+            <p>我们将使用与上一个实验相同的拓扑，但使用默认路由代替特定网络路由。</p>
+            
+            <h3>实验步骤</h3>
+            <p>前面的步骤（1-5）与上一个实验相同，我们只需要修改路由配置：</p>
+            <div class="code-block">
+# 步骤 6：配置默认路由
+# ns1 的默认路由
+sudo ip netns exec ns1 ip route add default via 10.0.1.2
+
+# ns3 的默认路由
+sudo ip netns exec ns3 ip route add default via 10.0.2.1
+
+# 验证路由配置
+sudo ip netns exec ns1 ip route
+sudo ip netns exec ns2 ip route
+sudo ip netns exec ns3 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 7：测试连通性
+# 从 ns1 到 ns2
+sudo ip netns exec ns1 ping -c 3 10.0.1.2
+
+# 从 ns1 到 ns3
+sudo ip netns exec ns1 ping -c 3 10.0.2.2
+
+# 从 ns3 到 ns2
+sudo ip netns exec ns3 ping -c 3 10.0.2.1
+
+# 从 ns3 到 ns1
+sudo ip netns exec ns3 ping -c 3 10.0.1.1
+</div>
+            
+            <p>在这个实验中，我们使用默认路由代替特定网络路由。默认路由会匹配所有没有特定路由的目标网络，使配置更简单。</p>
+            
+            <h3>路由表分析</h3>
+            <p>让我们分析三个命名空间的路由表：</p>
+            <div class="code-block">
+# ns1 的路由表
+default via 10.0.1.2 dev veth1-1
+10.0.1.0/24 dev veth1-1 proto kernel scope link src 10.0.1.1
+
+# ns2 的路由表
+10.0.1.0/24 dev veth1-2 proto kernel scope link src 10.0.1.2
+10.0.2.0/24 dev veth2-2 proto kernel scope link src 10.0.2.1
+
+# ns3 的路由表
+default via 10.0.2.1 dev veth2-3
+10.0.2.0/24 dev veth2-3 proto kernel scope link src 10.0.2.2
+</div>
+            
+            <p>在 ns1 的路由表中，默认路由指向 10.0.1.2（ns2 的 IP 地址）。这意味着所有没有特定路由的数据包都将发送到 ns2。</p>
+            
+            <p>在 ns3 的路由表中，默认路由指向 10.0.2.1（ns2 的 IP 地址）。这意味着所有没有特定路由的数据包都将发送到 ns2。</p>
+            
+            <p>在 ns2 的路由表中，没有默认路由，只有两个连接路由。这足以使 ns2 可以直接访问这两个网络，并转发它们之间的数据包。</p>
+        </section>
+
+        <section>
+            <h2>路由度量值配置</h2>
+            <p>路由度量值用于指示路由的优先级或成本。当有多个路由可以到达同一目标时，内核会选择度量值最低的路由。</p>
+            
+            <h3>实验拓扑</h3>
+            <p>我们将创建一个简单的拓扑，其中 ns1 有两条到达 ns3 的路径，一条通过 ns2-1，另一条通过 ns2-2。</p>
+            <ul>
+                <li>ns1：10.0.1.1/24 和 10.0.2.1/24，连接到 ns2-1 和 ns2-2</li>
+                <li>ns2-1：10.0.1.2/24 和 10.0.3.1/24，连接到 ns1 和 ns3</li>
+                <li>ns2-2：10.0.2.2/24 和 10.0.4.1/24，连接到 ns1 和 ns3</li>
+                <li>ns3：10.0.3.2/24 和 10.0.4.2/24，连接到 ns2-1 和 ns2-2</li>
+            </ul>
+            
+            <p>这个实验的详细步骤将在 <a href="veth-routing-static-advanced.html">高级静态路由</a> 页面中介绍。</p>
+        </section>
+
+        <section>
+            <h2>主机路由配置</h2>
+            <p>主机路由是指向特定主机的路由，而不是整个网络。主机路由的目标是一个具体的 IP 地址，而不是一个网络。</p>
+            
+            <h3>实验拓扑</h3>
+            <p>我们将使用与多跳路由实验相同的拓扑，但使用主机路由代替网络路由。</p>
+            
+            <h3>实验步骤</h3>
+            <p>前面的步骤（1-5）与多跳路由实验相同，我们只需要修改路由配置：</p>
+            <div class="code-block">
+# 步骤 6：配置主机路由
+# ns1 的主机路由
+sudo ip netns exec ns1 ip route add 10.0.2.2 via 10.0.1.2
+
+# ns3 的主机路由
+sudo ip netns exec ns3 ip route add 10.0.1.1 via 10.0.2.1
+
+# 验证路由配置
+sudo ip netns exec ns1 ip route
+sudo ip netns exec ns2 ip route
+sudo ip netns exec ns3 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 7：测试连通性
+# 从 ns1 到 ns3
+sudo ip netns exec ns1 ping -c 3 10.0.2.2
+
+# 从 ns3 到 ns1
+sudo ip netns exec ns3 ping -c 3 10.0.1.1
+</div>
+            
+            <p>在这个实验中，我们使用主机路由代替网络路由。主机路由只匹配特定的 IP 地址，而不是整个网络。</p>
+            
+            <h3>路由表分析</h3>
+            <p>让我们分析三个命名空间的路由表：</p>
+            <div class="code-block">
+# ns1 的路由表
+10.0.1.0/24 dev veth1-1 proto kernel scope link src 10.0.1.1
+10.0.2.2 via 10.0.1.2 dev veth1-1
+
+# ns2 的路由表
+10.0.1.0/24 dev veth1-2 proto kernel scope link src 10.0.1.2
+10.0.2.0/24 dev veth2-2 proto kernel scope link src 10.0.2.1
+
+# ns3 的路由表
+10.0.1.1 via 10.0.2.1 dev veth2-3
+10.0.2.0/24 dev veth2-3 proto kernel scope link src 10.0.2.2
+</div>
+            
+            <p>在 ns1 的路由表中，10.0.2.2 的路由指向 10.0.1.2（ns2 的 IP 地址）。这意味着发往 10.0.2.2 的数据包将发送到 ns2。</p>
+            
+            <p>在 ns3 的路由表中，10.0.1.1 的路由指向 10.0.2.1（ns2 的 IP 地址）。这意味着发往 10.0.1.1 的数据包将发送到 ns2。</p>
+            
+            <p>主机路由比网络路由更具体，因此在路由查找过程中具有更高的优先级。</p>
+        </section>
+
+        <section>
+            <h2>接口路由配置</h2>
+            <p>接口路由指定了通过特定接口发送数据包的路径，而不指定下一跳地址。接口路由通常用于点对点链路或广播网络。</p>
+            
+            <h3>实验拓扑</h3>
+            <p>我们将使用与直接连接实验相同的拓扑，但使用接口路由代替连接路由。</p>
+            
+            <h3>实验步骤</h3>
+            <p>前面的步骤（1-3）与直接连接实验相同，我们需要修改 IP 地址配置和路由配置：</p>
+            <div class="code-block">
+# 步骤 4：配置 IP 地址（不使用子网掩码）
+sudo ip netns exec ns1 ip addr add 10.0.1.1 dev veth1
+sudo ip netns exec ns2 ip addr add 10.0.1.2 dev veth2
+
+# 启用设备
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns2 ip link set veth2 up
+sudo ip netns exec ns1 ip link set lo up
+sudo ip netns exec ns2 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 5：配置接口路由
+# ns1 的接口路由
+sudo ip netns exec ns1 ip route add 10.0.1.2 dev veth1
+
+# ns2 的接口路由
+sudo ip netns exec ns2 ip route add 10.0.1.1 dev veth2
+
+# 验证路由配置
+sudo ip netns exec ns1 ip route
+sudo ip netns exec ns2 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 6：测试连通性
+sudo ip netns exec ns1 ping -c 3 10.0.1.2
+sudo ip netns exec ns2 ping -c 3 10.0.1.1
+</div>
+            
+            <p>在这个实验中，我们使用接口路由代替连接路由。接口路由指定了通过特定接口发送数据包的路径，而不指定下一跳地址。</p>
+            
+            <h3>路由表分析</h3>
+            <p>让我们分析两个命名空间的路由表：</p>
+            <div class="code-block">
+# ns1 的路由表
+10.0.1.1 dev veth1 proto kernel scope link src 10.0.1.1
+10.0.1.2 dev veth1 scope link
+
+# ns2 的路由表
+10.0.1.1 dev veth2 scope link
+10.0.1.2 dev veth2 proto kernel scope link src 10.0.1.2
+</div>
+            
+            <p>在 ns1 的路由表中，10.0.1.2 的路由指向 veth1 接口，没有指定下一跳地址。这意味着发往 10.0.1.2 的数据包将通过 veth1 接口直接发送。</p>
+            
+            <p>在 ns2 的路由表中，10.0.1.1 的路由指向 veth2 接口，没有指定下一跳地址。这意味着发往 10.0.1.1 的数据包将通过 veth2 接口直接发送。</p>
+            
+            <p>接口路由适用于点对点链路或广播网络，其中下一跳地址是隐含的。</p>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <ul>
+                <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                <li><a href="veth-routing-static-advanced.html">高级静态路由</a></li>
+                <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                <li><a href="veth-routing-multipath.html">多路径路由配置</a></li>
+                <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+            </ul>
+            <div class="navigation-buttons">
+                <a href="veth-routing-static.html" class="button">上一页：静态路由配置</a>
+                <a href="veth-routing-static-advanced.html" class="button">下一页：高级静态路由</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

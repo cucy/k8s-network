@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pod IP 分配机制 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Pod IP 分配机制</h2>
+            <p>在 Kubernetes 中，每个 Pod 都需要一个唯一的 IP 地址来实现网络通信。本页将深入探讨 Kubernetes 如何为 Pod 分配 IP 地址，以及不同 CNI 插件的 IP 分配策略。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/pod-ip-allocation.svg" class="diagram">
+                    Pod IP 分配示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>IP 地址分配基本原理</h2>
+            <p>Kubernetes 集群中的 IP 地址分配遵循以下基本原则：</p>
+            <ul>
+                <li>每个 Pod 都有一个唯一的 IP 地址</li>
+                <li>Pod IP 地址在整个集群中必须是唯一的</li>
+                <li>Pod IP 地址通常来自预定义的 CIDR 块</li>
+                <li>IP 地址分配由 CNI 插件的 IPAM (IP Address Management) 组件负责</li>
+            </ul>
+            
+            <h3>Pod CIDR 规划</h3>
+            <p>在 Kubernetes 集群中，通常会为 Pod 网络分配一个大的 CIDR 块，然后将其划分为更小的子网，分配给各个节点。例如：</p>
+            <ul>
+                <li>集群 Pod CIDR：10.244.0.0/16</li>
+                <li>节点 1 子网：10.244.1.0/24</li>
+                <li>节点 2 子网：10.244.2.0/24</li>
+                <li>节点 3 子网：10.244.3.0/24</li>
+            </ul>
+            <p>这种划分方式使得每个节点可以独立分配 IP 地址，而不需要与其他节点协调。</p>
+            
+            <div class="code-block">
+# 查看节点的 Pod CIDR 分配
+kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'
+
+# 查看特定节点的 Pod CIDR
+kubectl get node <node-name> -o jsonpath='{.spec.podCIDR}'
+            </div>
+        </section>
+
+        <section>
+            <h2>IPAM (IP 地址管理)</h2>
+            <p>IPAM 是 CNI 插件的一个重要组件，负责 IP 地址的分配和回收。常见的 IPAM 插件包括：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">host-local</div>
+                    <div class="tab">dhcp</div>
+                    <div class="tab">calico-ipam</div>
+                    <div class="tab">whereabouts</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>host-local IPAM</h3>
+                        <p>host-local 是最常用的 IPAM 插件之一，它在每个节点上本地管理 IP 地址分配。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>在节点的本地文件系统中维护已分配 IP 地址的记录（通常在 /var/lib/cni/networks/ 目录下）</li>
+                            <li>从配置的子网中顺序分配可用 IP 地址</li>
+                            <li>确保在同一节点上不会出现 IP 地址冲突</li>
+                            <li>当 Pod 被删除时，释放相应的 IP 地址</li>
+                        </ol>
+                        
+                        <h4>配置示例：</h4>
+                        <div class="code-block">
+{
+  "cniVersion": "0.3.1",
+  "name": "mynet",
+  "type": "bridge",
+  "bridge": "cni0",
+  "isGateway": true,
+  "ipMasq": true,
+  "ipam": {
+    "type": "host-local",
+    "subnet": "10.244.1.0/24",
+    "routes": [
+      { "dst": "0.0.0.0/0" }
+    ]
+  }
+}
+                        </div>
+                        
+                        <h4>优缺点：</h4>
+                        <ul>
+                            <li><strong>优点</strong>：简单可靠，不依赖外部服务，适合大多数场景</li>
+                            <li><strong>缺点</strong>：不支持跨节点协调，可能导致大型集群中的 IP 地址浪费</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>DHCP IPAM</h3>
+                        <p>DHCP IPAM 插件使用 DHCP 协议为 Pod 分配 IP 地址。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>启动一个 DHCP 客户端守护进程</li>
+                            <li>当需要为 Pod 分配 IP 地址时，向 DHCP 服务器发送请求</li>
+                            <li>接收 DHCP 服务器分配的 IP 地址，并配置到 Pod 的网络接口</li>
+                            <li>定期续约 DHCP 租约</li>
+                        </ol>
+                        
+                        <h4>配置示例：</h4>
+                        <div class="code-block">
+{
+  "cniVersion": "0.3.1",
+  "name": "mynet",
+  "type": "bridge",
+  "bridge": "cni0",
+  "isGateway": true,
+  "ipam": {
+    "type": "dhcp"
+  }
+}
+                        </div>
+                        
+                        <h4>优缺点：</h4>
+                        <ul>
+                            <li><strong>优点</strong>：可以集中管理 IP 地址，与现有的 DHCP 基础设施集成</li>
+                            <li><strong>缺点</strong>：依赖 DHCP 服务器，增加了复杂性和潜在的故障点</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Calico IPAM</h3>
+                        <p>Calico IPAM 是 Calico CNI 插件的一部分，提供了分布式的 IP 地址管理功能。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>使用 Kubernetes API 或 etcd 作为后端存储</li>
+                            <li>为每个节点分配一个 IP 池（CIDR 块）</li>
+                            <li>支持 IP 地址的动态分配和静态分配</li>
+                            <li>提供 IP 地址的回收和重用机制</li>
+                        </ol>
+                        
+                        <h4>配置示例：</h4>
+                        <div class="code-block">
+{
+  "cniVersion": "0.3.1",
+  "name": "calico-network",
+  "type": "calico",
+  "ipam": {
+    "type": "calico-ipam",
+    "assign_ipv4": "true",
+    "ipv4_pools": ["10.244.0.0/16"]
+  }
+}
+                        </div>
+                        
+                        <h4>优缺点：</h4>
+                        <ul>
+                            <li><strong>优点</strong>：支持大规模集群，提供高级功能如 IP 池管理和 IP 地址亲和性</li>
+                            <li><strong>缺点</strong>：配置相对复杂，依赖外部存储</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Whereabouts IPAM</h3>
+                        <p>Whereabouts 是一个相对较新的 IPAM 插件，专为大规模 Kubernetes 集群设计。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>使用 Kubernetes CRD（自定义资源定义）存储 IP 地址分配信息</li>
+                            <li>支持跨节点的 IP 地址协调，避免冲突</li>
+                            <li>提供范围内的 IP 地址分配，而不是按节点分配子网</li>
+                            <li>支持多个 IP 范围和排除范围</li>
+                        </ol>
+                        
+                        <h4>配置示例：</h4>
+                        <div class="code-block">
+{
+  "cniVersion": "0.3.1",
+  "name": "whereabouts-network",
+  "type": "bridge",
+  "bridge": "cni0",
+  "isGateway": true,
+  "ipam": {
+    "type": "whereabouts",
+    "range": "10.244.0.0/16",
+    "exclude": [
+      "10.244.0.0/24",
+      "10.244.1.0/24"
+    ],
+    "log_file": "/tmp/whereabouts.log",
+    "log_level": "info"
+  }
+}
+                        </div>
+                        
+                        <h4>优缺点：</h4>
+                        <ul>
+                            <li><strong>优点</strong>：高效利用 IP 地址空间，适合大规模集群，不需要预先分配节点子网</li>
+                            <li><strong>缺点</strong>：相对较新，可能存在稳定性问题，依赖 Kubernetes API</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>不同 CNI 插件的 IP 分配策略</h2>
+            <p>不同的 CNI 插件采用不同的 IP 分配策略，以下是几种常见 CNI 插件的 IP 分配方式：</p>
+            
+            <div class="experiment-card">
+                <h3>Flannel</h3>
+                <p>Flannel 使用相对简单的 IP 分配策略：</p>
+                <ul>
+                    <li>在集群初始化时，为每个节点分配一个固定大小的子网（通常是 /24）</li>
+                    <li>使用 host-local IPAM 插件在节点本地管理 IP 地址分配</li>
+                    <li>子网信息存储在 etcd 或 Kubernetes API 中</li>
+                    <li>当节点加入集群时，会获得一个唯一的子网</li>
+                </ul>
+                <p>例如，如果集群 Pod CIDR 是 10.244.0.0/16，则：</p>
+                <ul>
+                    <li>节点 1 可能获得 10.244.1.0/24</li>
+                    <li>节点 2 可能获得 10.244.2.0/24</li>
+                </ul>
+                <p>这种方式简单可靠，但在大型集群中可能导致 IP 地址空间浪费。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Calico</h3>
+                <p>Calico 提供了更灵活的 IP 分配策略：</p>
+                <ul>
+                    <li>支持多个 IP 池，可以为不同的工作负载分配不同的 IP 池</li>
+                    <li>可以配置 IP 池的块大小（blockSize），默认为 /26</li>
+                    <li>按需为节点分配 IP 块，而不是预先分配固定大小的子网</li>
+                    <li>支持 IP 地址亲和性，可以尝试为重新创建的 Pod 分配相同的 IP 地址</li>
+                    <li>提供 IP 地址预留功能，可以排除特定的 IP 地址或范围</li>
+                </ul>
+                <p>Calico 的 IP 分配更加灵活和高效，适合大型和复杂的集群环境。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Weave Net</h3>
+                <p>Weave Net 使用分散式的 IP 分配策略：</p>
+                <ul>
+                    <li>每个节点负责一部分 IP 地址空间的分配</li>
+                    <li>节点之间使用 gossip 协议同步 IP 分配信息</li>
+                    <li>支持 IP 地址范围的分裂和合并，以适应集群的变化</li>
+                    <li>不依赖中央数据存储，提高了可靠性</li>
+                </ul>
+                <p>Weave Net 的分散式设计使其在网络分区等情况下仍能继续工作。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Cilium</h3>
+                <p>Cilium 基于 eBPF 技术，提供了高级的 IP 分配功能：</p>
+                <ul>
+                    <li>支持集中式和分布式的 IP 分配模式</li>
+                    <li>可以使用 CRD 或 etcd 存储 IP 分配信息</li>
+                    <li>支持 IPv4 和 IPv6 双栈</li>
+                    <li>提供基于身份的寻址，减少对 IP 地址的依赖</li>
+                    <li>支持 IP 地址池和范围管理</li>
+                </ul>
+                <p>Cilium 的 IP 分配策略与其基于身份的安全模型紧密集成，提供了更强大的网络控制能力。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod IP 分配的最佳实践</h2>
+            <p>在规划和管理 Kubernetes 集群的 Pod IP 分配时，可以参考以下最佳实践：</p>
+            
+            <h3>1. CIDR 规划</h3>
+            <ul>
+                <li>为 Pod 网络分配足够大的 CIDR 块，以支持集群的增长</li>
+                <li>避免与现有网络重叠，特别是当使用直接路由（非 Overlay）模式时</li>
+                <li>考虑将来的扩展需求，预留足够的地址空间</li>
+                <li>如果使用多集群或混合云，确保不同集群的 CIDR 不重叠</li>
+            </ul>
+            
+            <h3>2. IP 地址管理</h3>
+            <ul>
+                <li>选择适合集群规模的 IPAM 插件</li>
+                <li>对于小型集群，host-local IPAM 通常足够</li>
+                <li>对于大型集群，考虑使用 Calico IPAM 或 Whereabouts 等更高级的解决方案</li>
+                <li>监控 IP 地址使用情况，避免耗尽</li>
+            </ul>
+            
+            <h3>3. 故障处理</h3>
+            <ul>
+                <li>了解如何排查 IP 分配问题</li>
+                <li>定期备份 IP 分配数据</li>
+                <li>制定 IP 冲突解决方案</li>
+                <li>测试节点故障和恢复场景下的 IP 分配行为</li>
+            </ul>
+            
+            <h3>4. 安全考虑</h3>
+            <ul>
+                <li>使用网络策略控制 Pod 间通信</li>
+                <li>考虑实施 IP 地址分段，将不同安全级别的工作负载隔离</li>
+                <li>限制对 IPAM 配置的访问权限</li>
+                <li>监控异常的 IP 分配行为</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>故障排除</h2>
+            <p>在 Pod IP 分配过程中可能遇到的常见问题及解决方法：</p>
+            
+            <div class="experiment-card">
+                <h3>IP 地址冲突</h3>
+                <p>症状：Pod 无法启动，日志中显示 IP 地址已被使用</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>IPAM 数据不一致</li>
+                    <li>多个 IPAM 实例管理同一 IP 范围</li>
+                    <li>手动配置的静态 IP 与动态分配的 IP 冲突</li>
+                </ul>
+                <p>解决方法：</p>
+                <div class="code-block">
+# 检查已分配的 IP 地址
+kubectl get pods -o wide --all-namespaces
+
+# 检查 IPAM 存储
+# 对于 host-local IPAM
+ls -la /var/lib/cni/networks/
+
+# 对于 Calico
+kubectl get ipamblocks -o yaml
+
+# 清理孤立的 IP 分配记录
+rm -f /var/lib/cni/networks/*/10.244.1.2
+
+# 重启 CNI 相关组件
+kubectl rollout restart ds -n kube-system calico-node
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>IP 地址耗尽</h3>
+                <p>症状：新 Pod 无法获取 IP 地址，卡在 ContainerCreating 状态</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>节点的 IP 地址池已用尽</li>
+                    <li>CIDR 块太小，无法容纳所有 Pod</li>
+                    <li>IP 地址泄漏，已删除的 Pod 的 IP 没有被释放</li>
+                </ul>
+                <p>解决方法：</p>
+                <div class="code-block">
+# 检查节点的 Pod CIDR 使用情况
+kubectl get pods -o wide --all-namespaces | grep <node-name>
+
+# 对于 Calico，扩展 IP 池
+kubectl patch ippool default-ipv4-ippool -p '{"spec":{"cidr":"10.244.0.0/16"}}'
+
+# 清理未释放的 IP 地址
+# 这需要根据具体的 CNI 插件采取不同的操作
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>IP 分配延迟</h3>
+                <p>症状：Pod 创建时间较长，主要卡在获取 IP 地址的阶段</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>IPAM 插件性能问题</li>
+                    <li>外部依赖（如 DHCP 服务器）响应慢</li>
+                    <li>集群规模大，IPAM 处理压力大</li>
+                </ul>
+                <p>解决方法：</p>
+                <ul>
+                    <li>优化 IPAM 配置，如增加缓存</li>
+                    <li>考虑使用更高效的 IPAM 插件</li>
+                    <li>检查和优化外部依赖服务</li>
+                    <li>分析 CNI 插件日志，找出瓶颈</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <p>要了解更多关于 Pod IP 分配的信息，可以参考以下资源：</p>
+            <ul>
+                <li><a href="pod-network.html">Pod 网络概述</a></li>
+                <li><a href="pod-to-pod-networking.html">Pod 间通信</a></li>
+                <li><a href="cross-node-networking.html">跨节点 Pod 通信</a></li>
+                <li><a href="cni.html">CNI 插件</a></li>
+            </ul>
+            <a href="pod-internal-networking.html" class="button">了解 Pod 内部网络</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

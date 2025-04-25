@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="600" viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .node {
+      fill: #f0f5ff;
+      stroke: #326ce5;
+      stroke-width: 2;
+    }
+    .pod {
+      fill: #d4e5ff;
+      stroke: #326ce5;
+      stroke-width: 1.5;
+    }
+    .container {
+      fill: #b3d1ff;
+      stroke: #326ce5;
+      stroke-width: 1;
+    }
+    .network {
+      fill: none;
+      stroke: #999;
+      stroke-width: 1.5;
+      stroke-dasharray: 5,5;
+    }
+    .bridge {
+      fill: #e6f2ff;
+      stroke: #326ce5;
+      stroke-width: 1.5;
+    }
+    .veth {
+      fill: none;
+      stroke: #ff9900;
+      stroke-width: 2;
+    }
+    .overlay {
+      fill: none;
+      stroke: #47d147;
+      stroke-width: 2;
+      stroke-dasharray: 5,3;
+    }
+    .arrow {
+      fill: none;
+      stroke: #666;
+      stroke-width: 1.5;
+      marker-end: url(#arrowhead);
+    }
+    .packet {
+      fill: #ff6666;
+    }
+    .label {
+      font-family: 'Arial', sans-serif;
+      font-size: 14px;
+      text-anchor: middle;
+    }
+    .small-label {
+      font-family: 'Arial', sans-serif;
+      font-size: 12px;
+      text-anchor: middle;
+    }
+    .title {
+      font-family: 'Arial', sans-serif;
+      font-size: 18px;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .highlight {
+      animation: pulse 1.5s infinite alternate;
+    }
+    @keyframes pulse {
+      from { opacity: 1; }
+      to { opacity: 0.6; }
+    }
+    .animate {
+      animation: movePacket 3s ease-in-out;
+    }
+    @keyframes movePacket {
+      0% { transform: translateX(0) translateY(0); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateX(300px) translateY(0); opacity: 0; }
+    }
+  </style>
+  
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+    </marker>
+  </defs>
+  
+  <rect width="100%" height="100%" fill="#f8f9fa" />
+  
+  <text x="400" y="40" class="title">Kubernetes Pod 网络工作原理</text>
+  
+  <!-- 物理网络 -->
+  <rect x="50" y="500" width="700" height="50" rx="5" ry="5" class="network" id="physical-network" />
+  <text x="400" y="530" class="label">物理网络</text>
+  
+  <!-- 节点 1 -->
+  <rect x="100" y="130" width="280" height="350" rx="5" ry="5" class="node" id="node1" />
+  <text x="240" y="150" class="label">节点 1</text>
+  
+  <!-- 节点 1 上的网桥 -->
+  <rect x="120" y="320" width="240" height="40" rx="5" ry="5" class="bridge" id="bridge1" />
+  <text x="240" y="345" class="label">网桥 (cni0)</text>
+  
+  <!-- 节点 1 上的 Pod 1 -->
+  <rect x="130" y="170" width="110" height="130" rx="5" ry="5" class="pod" id="pod1" />
+  <text x="185" y="190" class="label">Pod 1</text>
+  <rect x="140" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="160" y="235" class="small-label">容器 A</text>
+  <rect x="190" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="210" y="235" class="small-label">容器 B</text>
+  
+  <!-- Pod 1 网络命名空间 -->
+  <rect x="140" y="270" width="90" height="25" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="185" y="287" class="small-label">网络命名空间</text>
+  
+  <!-- Pod 1 eth0 -->
+  <circle cx="185" y="295" r="5" fill="#ff9900" />
+  <text x="185" y="310" class="small-label">eth0</text>
+  
+  <!-- 节点 1 上的 Pod 2 -->
+  <rect x="260" y="170" width="110" height="130" rx="5" ry="5" class="pod" id="pod2" />
+  <text x="315" y="190" class="label">Pod 2</text>
+  <rect x="270" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="290" y="235" class="small-label">容器 C</text>
+  <rect x="320" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="340" y="235" class="small-label">容器 D</text>
+  
+  <!-- Pod 2 网络命名空间 -->
+  <rect x="270" y="270" width="90" height="25" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="315" y="287" class="small-label">网络命名空间</text>
+  
+  <!-- Pod 2 eth0 -->
+  <circle cx="315" y="295" r="5" fill="#ff9900" />
+  <text x="315" y="310" class="small-label">eth0</text>
+  
+  <!-- veth pairs for Pod 1 -->
+  <path d="M 185 295 C 185 320, 160 320, 160 340" class="veth" id="veth1" />
+  <circle cx="160" y="340" r="5" fill="#ff9900" />
+  <text x="160" y="360" class="small-label">veth1</text>
+  
+  <!-- veth pairs for Pod 2 -->
+  <path d="M 315 295 C 315 320, 320 320, 320 340" class="veth" id="veth2" />
+  <circle cx="320" y="340" r="5" fill="#ff9900" />
+  <text x="320" y="360" class="small-label">veth2</text>
+  
+  <!-- 节点 1 路由 -->
+  <rect x="120" y="380" width="240" height="30" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="240" y="400" class="small-label">路由表 (10.244.1.0/24 → cni0)</text>
+  
+  <!-- 节点 1 网络接口 -->
+  <rect x="120" y="420" width="240" height="30" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="240" y="440" class="small-label">eth0 (192.168.1.10)</text>
+  
+  <!-- 节点 2 -->
+  <rect x="420" y="130" width="280" height="350" rx="5" ry="5" class="node" id="node2" />
+  <text x="560" y="150" class="label">节点 2</text>
+  
+  <!-- 节点 2 上的网桥 -->
+  <rect x="440" y="320" width="240" height="40" rx="5" ry="5" class="bridge" id="bridge2" />
+  <text x="560" y="345" class="label">网桥 (cni0)</text>
+  
+  <!-- 节点 2 上的 Pod 3 -->
+  <rect x="450" y="170" width="110" height="130" rx="5" ry="5" class="pod" id="pod3" />
+  <text x="505" y="190" class="label">Pod 3</text>
+  <rect x="460" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="480" y="235" class="small-label">容器 E</text>
+  <rect x="510" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="530" y="235" class="small-label">容器 F</text>
+  
+  <!-- Pod 3 网络命名空间 -->
+  <rect x="460" y="270" width="90" height="25" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="505" y="287" class="small-label">网络命名空间</text>
+  
+  <!-- Pod 3 eth0 -->
+  <circle cx="505" y="295" r="5" fill="#ff9900" />
+  <text x="505" y="310" class="small-label">eth0</text>
+  
+  <!-- 节点 2 上的 Pod 4 -->
+  <rect x="580" y="170" width="110" height="130" rx="5" ry="5" class="pod" id="pod4" />
+  <text x="635" y="190" class="label">Pod 4</text>
+  <rect x="590" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="610" y="235" class="small-label">容器 G</text>
+  <rect x="640" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="660" y="235" class="small-label">容器 H</text>
+  
+  <!-- Pod 4 网络命名空间 -->
+  <rect x="590" y="270" width="90" height="25" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="635" y="287" class="small-label">网络命名空间</text>
+  
+  <!-- Pod 4 eth0 -->
+  <circle cx="635" y="295" r="5" fill="#ff9900" />
+  <text x="635" y="310" class="small-label">eth0</text>
+  
+  <!-- veth pairs for Pod 3 -->
+  <path d="M 505 295 C 505 320, 480 320, 480 340" class="veth" id="veth3" />
+  <circle cx="480" y="340" r="5" fill="#ff9900" />
+  <text x="480" y="360" class="small-label">veth3</text>
+  
+  <!-- veth pairs for Pod 4 -->
+  <path d="M 635 295 C 635 320, 640 320, 640 340" class="veth" id="veth4" />
+  <circle cx="640" y="340" r="5" fill="#ff9900" />
+  <text x="640" y="360" class="small-label">veth4</text>
+  
+  <!-- 节点 2 路由 -->
+  <rect x="440" y="380" width="240" height="30" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="560" y="400" class="small-label">路由表 (10.244.2.0/24 → cni0)</text>
+  
+  <!-- 节点 2 网络接口 -->
+  <rect x="440" y="420" width="240" height="30" rx="3" ry="3" fill="#f0f0f0" stroke="#999" />
+  <text x="560" y="440" class="small-label">eth0 (192.168.1.11)</text>
+  
+  <!-- 节点间通信 -->
+  <path d="M 240 450 L 240 500" class="arrow" id="node1-to-network" />
+  <path d="M 560 450 L 560 500" class="arrow" id="node2-to-network" />
+  
+  <!-- 跨节点Pod通信 (overlay) -->
+  <path d="M 185 250 C 185 100, 505 100, 505 250" class="overlay" id="pod1-to-pod3" />
+  <circle cx="345" cy="100" r="10" class="packet" id="packet" style="opacity: 0;" />
+  
+  <!-- IP地址标签 -->
+  <text x="185" y="160" class="small-label">10.244.1.2</text>
+  <text x="315" y="160" class="small-label">10.244.1.3</text>
+  <text x="505" y="160" class="small-label">10.244.2.2</text>
+  <text x="635" y="160" class="small-label">10.244.2.3</text>
+  
+  <!-- 图例 -->
+  <rect x="100" y="560" width="15" height="15" class="pod" />
+  <text x="125" y="573" class="small-label" style="text-anchor: start;">Pod</text>
+  
+  <rect x="200" y="560" width="15" height="15" class="container" />
+  <text x="225" y="573" class="small-label" style="text-anchor: start;">容器</text>
+  
+  <rect x="300" y="560" width="15" height="15" class="bridge" />
+  <text x="325" y="573" class="small-label" style="text-anchor: start;">网桥</text>
+  
+  <line x1="400" y1="568" x2="430" y2="568" class="veth" />
+  <text x="455" y="573" class="small-label" style="text-anchor: start;">veth pair</text>
+  
+  <line x1="500" y1="568" x2="530" y2="568" class="overlay" />
+  <text x="555" y="573" class="small-label" style="text-anchor: start;">Overlay 网络</text>
+  
+  <line x1="600" y1="568" x2="630" y2="568" class="arrow" />
+  <text x="655" y="573" class="small-label" style="text-anchor: start;">数据流向</text>
+</svg>

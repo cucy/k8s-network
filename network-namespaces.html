@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络命名空间 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>网络命名空间</h2>
+            <p>网络命名空间（Network Namespace）是 Linux 内核提供的一种网络隔离机制，是 Kubernetes 网络实现的基础。本页将深入介绍网络命名空间的概念、工作原理以及在 Kubernetes 中的应用。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/network-namespaces.svg" class="diagram">
+                    网络命名空间示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>什么是网络命名空间？</h2>
+            <p>网络命名空间是 Linux 内核提供的一种隔离机制，它可以将网络栈进行隔离，使得不同的命名空间拥有独立的：</p>
+            <ul>
+                <li>网络设备（如 eth0、lo 等）</li>
+                <li>IP 地址</li>
+                <li>路由表</li>
+                <li>防火墙规则</li>
+                <li>套接字</li>
+                <li>/proc/net 目录</li>
+                <li>端口空间</li>
+            </ul>
+            
+            <p>通过网络命名空间，可以在同一台物理机上创建多个相互隔离的网络环境，这是容器网络和 Kubernetes 网络的基础。</p>
+            
+            <div class="info-box">
+                <h3>命名空间与容器的关系</h3>
+                <p>容器技术（如 Docker）使用了多种 Linux 命名空间来实现隔离，包括：</p>
+                <ul>
+                    <li>网络命名空间（Network Namespace）：隔离网络资源</li>
+                    <li>进程命名空间（PID Namespace）：隔离进程 ID</li>
+                    <li>挂载命名空间（Mount Namespace）：隔离文件系统挂载点</li>
+                    <li>UTS 命名空间：隔离主机名和域名</li>
+                    <li>用户命名空间（User Namespace）：隔离用户和组 ID</li>
+                    <li>IPC 命名空间：隔离进程间通信资源</li>
+                </ul>
+                <p>本页主要关注网络命名空间，它是 Kubernetes 网络模型的核心组件。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>网络命名空间基础操作</h2>
+            <p>在深入了解 Kubernetes 中的应用之前，让我们先学习网络命名空间的基本操作：</p>
+            
+            <h3>1. 创建网络命名空间</h3>
+            <div class="code-block">
+# 创建一个名为 netns1 的网络命名空间
+ip netns add netns1
+
+# 列出所有网络命名空间
+ip netns list
+            </div>
+            
+            <h3>2. 在网络命名空间中执行命令</h3>
+            <div class="code-block">
+# 在 netns1 命名空间中执行 ip addr 命令
+ip netns exec netns1 ip addr
+
+# 在 netns1 命名空间中启动一个 shell
+ip netns exec netns1 bash
+            </div>
+            
+            <h3>3. 查看网络命名空间中的网络设备</h3>
+            <div class="code-block">
+# 查看 netns1 命名空间中的网络接口
+ip netns exec netns1 ip link
+
+# 查看 netns1 命名空间中的路由表
+ip netns exec netns1 ip route
+            </div>
+            
+            <p>新创建的网络命名空间只有一个 lo（回环）接口，并且默认是关闭状态。</p>
+            
+            <h3>4. 启用回环接口</h3>
+            <div class="code-block">
+# 启用 netns1 命名空间中的回环接口
+ip netns exec netns1 ip link set lo up
+
+# 验证接口状态
+ip netns exec netns1 ip addr
+            </div>
+            
+            <h3>5. 删除网络命名空间</h3>
+            <div class="code-block">
+# 删除 netns1 网络命名空间
+ip netns delete netns1
+            </div>
+        </section>
+
+        <section>
+            <h2>连接网络命名空间</h2>
+            <p>孤立的网络命名空间没有太大用处，我们需要将它们连接起来或连接到主机网络。有几种方法可以实现这一点：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Veth 对</div>
+                    <div class="tab">网桥</div>
+                    <div class="tab">路由</div>
+                    <div class="tab">NAT</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>使用 Veth 对连接网络命名空间</h3>
+                        <p>Veth（Virtual Ethernet）对是一对虚拟网络接口，一端连接到一个网络命名空间，另一端连接到另一个网络命名空间或主机网络命名空间。</p>
+                        
+                        <div class="diagram-container">
+                            <img src="svg/veth-pair.svg" alt="Veth 对示意图" style="max-width: 100%; height: auto;">
+                        </div>
+                        
+                        <h4>创建连接两个网络命名空间的 Veth 对：</h4>
+                        <div class="code-block">
+# 创建两个网络命名空间
+ip netns add ns1
+ip netns add ns2
+
+# 创建 veth 对
+ip link add veth1 type veth peer name veth2
+
+# 将 veth 对的两端分别放入不同的命名空间
+ip link set veth1 netns ns1
+ip link set veth2 netns ns2
+
+# 配置 IP 地址
+ip netns exec ns1 ip addr add 10.0.0.1/24 dev veth1
+ip netns exec ns2 ip addr add 10.0.0.2/24 dev veth2
+
+# 启用接口
+ip netns exec ns1 ip link set veth1 up
+ip netns exec ns2 ip link set veth2 up
+
+# 测试连通性
+ip netns exec ns1 ping 10.0.0.2
+                        </div>
+                        
+                        <p>这样，两个网络命名空间就可以通过 veth 对直接通信了。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>使用网桥连接多个网络命名空间</h3>
+                        <p>网桥（Bridge）是一个虚拟的二层设备，可以连接多个网络接口，实现它们之间的通信。</p>
+                        
+                        <div class="diagram-container">
+                            <img src="svg/bridge-netns.svg" alt="网桥连接网络命名空间示意图" style="max-width: 100%; height: auto;">
+                        </div>
+                        
+                        <h4>使用网桥连接多个网络命名空间：</h4>
+                        <div class="code-block">
+# 创建两个网络命名空间
+ip netns add ns1
+ip netns add ns2
+
+# 创建网桥
+ip link add br0 type bridge
+ip link set br0 up
+
+# 创建 veth 对并连接到网桥和命名空间
+# 第一对
+ip link add veth1-br type veth peer name veth1
+ip link set veth1 netns ns1
+ip link set veth1-br master br0
+ip link set veth1-br up
+
+# 第二对
+ip link add veth2-br type veth peer name veth2
+ip link set veth2 netns ns2
+ip link set veth2-br master br0
+ip link set veth2-br up
+
+# 配置命名空间中的接口
+ip netns exec ns1 ip addr add 10.0.0.1/24 dev veth1
+ip netns exec ns1 ip link set veth1 up
+ip netns exec ns1 ip link set lo up
+
+ip netns exec ns2 ip addr add 10.0.0.2/24 dev veth2
+ip netns exec ns2 ip link set veth2 up
+ip netns exec ns2 ip link set lo up
+
+# 测试连通性
+ip netns exec ns1 ping 10.0.0.2
+                        </div>
+                        
+                        <p>通过网桥，可以连接多个网络命名空间，形成一个虚拟的局域网。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>使用路由连接网络命名空间</h3>
+                        <p>除了二层连接（veth 对和网桥），还可以使用三层路由来连接不同子网的网络命名空间。</p>
+                        
+                        <h4>使用路由连接不同子网的网络命名空间：</h4>
+                        <div class="code-block">
+# 创建两个网络命名空间
+ip netns add ns1
+ip netns add ns2
+
+# 创建 veth 对连接到主机
+ip link add veth1-host type veth peer name veth1
+ip link set veth1 netns ns1
+ip link set veth1-host up
+
+ip link add veth2-host type veth peer name veth2
+ip link set veth2 netns ns2
+ip link set veth2-host up
+
+# 配置 IP 地址（不同子网）
+ip netns exec ns1 ip addr add 10.1.1.2/24 dev veth1
+ip netns exec ns1 ip link set veth1 up
+ip netns exec ns1 ip link set lo up
+
+ip netns exec ns2 ip addr add 10.2.2.2/24 dev veth2
+ip netns exec ns2 ip link set veth2 up
+ip netns exec ns2 ip link set lo up
+
+ip addr add 10.1.1.1/24 dev veth1-host
+ip addr add 10.2.2.1/24 dev veth2-host
+
+# 配置路由
+ip netns exec ns1 ip route add 10.2.2.0/24 via 10.1.1.1
+ip netns exec ns2 ip route add 10.1.1.0/24 via 10.2.2.1
+
+# 启用 IP 转发
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# 测试连通性
+ip netns exec ns1 ping 10.2.2.2
+                        </div>
+                        
+                        <p>通过配置路由，可以实现不同子网的网络命名空间之间的通信。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>使用 NAT 连接网络命名空间到外部网络</h3>
+                        <p>使用 NAT（网络地址转换）可以让网络命名空间访问外部网络，如互联网。</p>
+                        
+                        <h4>配置 NAT 使网络命名空间可以访问外部网络：</h4>
+                        <div class="code-block">
+# 创建网络命名空间
+ip netns add ns1
+
+# 创建 veth 对
+ip link add veth1-host type veth peer name veth1
+ip link set veth1 netns ns1
+ip link set veth1-host up
+
+# 配置 IP 地址
+ip netns exec ns1 ip addr add 10.0.0.2/24 dev veth1
+ip netns exec ns1 ip link set veth1 up
+ip netns exec ns1 ip link set lo up
+
+ip addr add 10.0.0.1/24 dev veth1-host
+
+# 配置默认路由
+ip netns exec ns1 ip route add default via 10.0.0.1
+
+# 启用 IP 转发
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# 配置 NAT（假设 eth0 是连接外部网络的接口）
+iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+
+# 测试连接外部网络
+ip netns exec ns1 ping 8.8.8.8
+                        </div>
+                        
+                        <p>通过 NAT，网络命名空间中的设备可以访问外部网络，但外部网络无法直接访问命名空间中的设备（除非配置端口转发）。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>网络命名空间在 Kubernetes 中的应用</h2>
+            <p>网络命名空间是 Kubernetes 网络模型的基础。在 Kubernetes 中：</p>
+            
+            <div class="experiment-card">
+                <h3>Pod 网络命名空间</h3>
+                <p>在 Kubernetes 中，每个 Pod 有自己的网络命名空间，Pod 内的所有容器共享这个网络命名空间。这就是为什么：</p>
+                <ul>
+                    <li>同一 Pod 内的容器可以通过 localhost 互相访问</li>
+                    <li>同一 Pod 内的容器共享同一个 IP 地址</li>
+                    <li>同一 Pod 内的容器可能需要协调端口使用</li>
+                </ul>
+                
+                <div class="code-block">
+# 查看 Pod 的网络命名空间
+# 首先获取 Pod 的容器 ID
+POD_ID=$(docker ps | grep <pod-name> | grep -v pause | awk '{print $1}')
+
+# 获取容器的进程 ID
+PID=$(docker inspect -f '{{.State.Pid}}' $POD_ID)
+
+# 查看该进程的网络命名空间
+ls -la /proc/$PID/ns/net
+
+# 在该网络命名空间中执行命令
+nsenter -t $PID -n ip addr
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Pause 容器的作用</h3>
+                <p>每个 Kubernetes Pod 都有一个 "pause" 容器，它是 Pod 的第一个容器，主要职责是：</p>
+                <ul>
+                    <li>创建和维护 Pod 的网络命名空间</li>
+                    <li>作为 Pod 内所有容器的父进程，回收僵尸进程</li>
+                </ul>
+                
+                <p>其他容器加入到 pause 容器创建的网络命名空间中，从而共享网络栈。</p>
+                
+                <div class="code-block">
+# 查看 pause 容器
+docker ps | grep pause
+
+# 查看 pause 容器的网络命名空间
+PAUSE_ID=$(docker ps | grep pause | grep <pod-name> | awk '{print $1}')
+PAUSE_PID=$(docker inspect -f '{{.State.Pid}}' $PAUSE_ID)
+ls -la /proc/$PAUSE_PID/ns/net
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>CNI 与网络命名空间</h3>
+                <p>Kubernetes 的 CNI（容器网络接口）插件负责：</p>
+                <ul>
+                    <li>为新创建的 Pod 配置网络命名空间</li>
+                    <li>将 Pod 的网络命名空间连接到节点网络</li>
+                    <li>分配 IP 地址给 Pod</li>
+                    <li>配置路由和防火墙规则</li>
+                </ul>
+                
+                <p>不同的 CNI 插件使用不同的方式来连接网络命名空间：</p>
+                <ul>
+                    <li><strong>Flannel</strong>：使用 veth 对和网桥（bridge）</li>
+                    <li><strong>Calico</strong>：使用 veth 对和路由</li>
+                    <li><strong>Weave</strong>：使用 veth 对和自定义路由</li>
+                </ul>
+                
+                <div class="code-block">
+# 查看 CNI 配置
+cat /etc/cni/net.d/*
+
+# 查看 CNI 插件创建的网络设备
+ip link | grep -E 'cni|flannel|calico|weave'
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>动手实验：探索网络命名空间</h2>
+            <p>以下是一些实验，帮助你理解网络命名空间和 Kubernetes 网络：</p>
+            
+            <div class="experiment-card">
+                <h3>实验 1：创建并连接两个网络命名空间</h3>
+                <ol>
+                    <li>创建两个网络命名空间</li>
+                    <li>使用 veth 对连接它们</li>
+                    <li>配置 IP 地址并测试连通性</li>
+                </ol>
+                
+                <div class="code-block">
+# 创建命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+
+# 创建 veth 对
+sudo ip link add veth1 type veth peer name veth2
+
+# 分配到各自命名空间
+sudo ip link set veth1 netns ns1
+sudo ip link set veth2 netns ns2
+
+# 配置 IP 地址
+sudo ip netns exec ns1 ip addr add 192.168.1.1/24 dev veth1
+sudo ip netns exec ns2 ip addr add 192.168.1.2/24 dev veth2
+
+# 启用接口
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns1 ip link set lo up
+sudo ip netns exec ns2 ip link set veth2 up
+sudo ip netns exec ns2 ip link set lo up
+
+# 测试连通性
+sudo ip netns exec ns1 ping -c 3 192.168.1.2
+sudo ip netns exec ns2 ping -c 3 192.168.1.1
+
+# 清理
+sudo ip netns delete ns1
+sudo ip netns delete ns2
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 2：使用网桥连接多个网络命名空间</h3>
+                <ol>
+                    <li>创建三个网络命名空间</li>
+                    <li>创建一个网桥</li>
+                    <li>使用 veth 对将每个命名空间连接到网桥</li>
+                    <li>测试所有命名空间之间的连通性</li>
+                </ol>
+                
+                <div class="code-block">
+# 创建命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+sudo ip netns add ns3
+
+# 创建网桥
+sudo ip link add br0 type bridge
+sudo ip link set br0 up
+
+# 为 ns1 创建 veth 对
+sudo ip link add veth1-br type veth peer name veth1
+sudo ip link set veth1 netns ns1
+sudo ip link set veth1-br master br0
+sudo ip link set veth1-br up
+
+# 为 ns2 创建 veth 对
+sudo ip link add veth2-br type veth peer name veth2
+sudo ip link set veth2 netns ns2
+sudo ip link set veth2-br master br0
+sudo ip link set veth2-br up
+
+# 为 ns3 创建 veth 对
+sudo ip link add veth3-br type veth peer name veth3
+sudo ip link set veth3 netns ns3
+sudo ip link set veth3-br master br0
+sudo ip link set veth3-br up
+
+# 配置 IP 地址
+sudo ip netns exec ns1 ip addr add 192.168.1.1/24 dev veth1
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns1 ip link set lo up
+
+sudo ip netns exec ns2 ip addr add 192.168.1.2/24 dev veth2
+sudo ip netns exec ns2 ip link set veth2 up
+sudo ip netns exec ns2 ip link set lo up
+
+sudo ip netns exec ns3 ip addr add 192.168.1.3/24 dev veth3
+sudo ip netns exec ns3 ip link set veth3 up
+sudo ip netns exec ns3 ip link set lo up
+
+# 测试连通性
+sudo ip netns exec ns1 ping -c 3 192.168.1.2
+sudo ip netns exec ns1 ping -c 3 192.168.1.3
+sudo ip netns exec ns2 ping -c 3 192.168.1.3
+
+# 清理
+sudo ip netns delete ns1
+sudo ip netns delete ns2
+sudo ip netns delete ns3
+sudo ip link delete br0
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 3：探索 Kubernetes Pod 的网络命名空间</h3>
+                <ol>
+                    <li>创建一个简单的 Pod</li>
+                    <li>找到 Pod 的网络命名空间</li>
+                    <li>检查网络配置</li>
+                </ol>
+                
+                <div class="code-block">
+# 创建一个简单的 Pod
+kubectl run nginx --image=nginx
+
+# 等待 Pod 运行
+kubectl wait --for=condition=Ready pod/nginx
+
+# 获取 Pod 的容器 ID
+POD_ID=$(docker ps | grep nginx | grep -v pause | head -n 1 | awk '{print $1}')
+
+# 获取容器的进程 ID
+PID=$(docker inspect -f '{{.State.Pid}}' $POD_ID)
+
+# 查看网络命名空间信息
+sudo ls -la /proc/$PID/ns/net
+
+# 在 Pod 的网络命名空间中执行命令
+sudo nsenter -t $PID -n ip addr
+sudo nsenter -t $PID -n ip route
+sudo nsenter -t $PID -n iptables -L
+
+# 清理
+kubectl delete pod nginx
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>网络命名空间的高级主题</h2>
+            
+            <div class="info-box">
+                <h3>网络命名空间持久化</h3>
+                <p>默认情况下，网络命名空间在系统重启后会消失。要持久化网络命名空间：</p>
+                <div class="code-block">
+# 创建一个文件来保存命名空间引用
+sudo ip netns add persistent-ns
+sudo touch /var/run/netns/persistent-ns
+
+# 挂载命名空间
+sudo mount --bind /proc/self/ns/net /var/run/netns/persistent-ns
+                </div>
+            </div>
+            
+            <div class="info-box">
+                <h3>网络命名空间和容器运行时</h3>
+                <p>不同的容器运行时（如 Docker、containerd、CRI-O）管理网络命名空间的方式略有不同：</p>
+                <ul>
+                    <li><strong>Docker</strong>：使用 libnetwork 创建和管理网络命名空间</li>
+                    <li><strong>containerd</strong>：依赖 CNI 插件管理网络命名空间</li>
+                    <li><strong>CRI-O</strong>：同样使用 CNI 插件管理网络命名空间</li>
+                </ul>
+                <p>但在 Kubernetes 中，无论使用哪种容器运行时，CNI 插件都负责配置 Pod 的网络命名空间。</p>
+            </div>
+            
+            <div class="info-box">
+                <h3>监控网络命名空间</h3>
+                <p>监控网络命名空间中的网络活动：</p>
+                <div class="code-block">
+# 在特定网络命名空间中使用 tcpdump
+sudo ip netns exec ns1 tcpdump -i veth1
+
+# 监控网络命名空间中的连接
+sudo ip netns exec ns1 netstat -tuln
+
+# 查看网络命名空间中的套接字统计
+sudo ip netns exec ns1 ss -s
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <p>要了解更多关于网络命名空间和 Kubernetes 网络的信息，可以参考以下资源：</p>
+            <ul>
+                <li><a href="pod-network.html">Pod 网络概述</a></li>
+                <li><a href="pod-to-pod-networking.html">Pod 间通信</a></li>
+                <li><a href="veth-pairs.html">Veth 对详解</a></li>
+                <li><a href="network-bridges.html">网络桥接</a></li>
+                <li><a href="cni.html">CNI 插件</a></li>
+            </ul>
+            <a href="veth-pairs.html" class="button">了解 Veth 对</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="500" xmlns="http://www.w3.org/2000/svg">
+    <!-- 背景 -->
+    <rect width="800" height="500" fill="#f8f9fa" />
+    
+    <!-- 标题 -->
+    <text x="400" y="30" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#333">Overlay网络故障排查流程</text>
+    
+    <!-- 节点和连接线 -->
+    <!-- 起始节点 -->
+    <rect x="300" y="60" width="200" height="50" rx="10" fill="#4472C4" />
+    <text x="400" y="90" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">Pod间通信问题</text>
+    
+    <!-- 连接线 -->
+    <line x1="400" y1="110" x2="400" y2="140" stroke="#333" stroke-width="2" />
+    <polygon points="400,140 395,130 405,130" fill="#333" />
+    
+    <!-- 第一级检查 -->
+    <rect x="300" y="140" width="200" height="50" rx="10" fill="#5B9BD5" />
+    <text x="400" y="170" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">检查Pod和节点网络状态</text>
+    
+    <!-- 连接线分支 -->
+    <line x1="400" y1="190" x2="400" y2="210" stroke="#333" stroke-width="2" />
+    <line x1="400" y1="210" x2="200" y2="210" stroke="#333" stroke-width="2" />
+    <line x1="400" y1="210" x2="600" y2="210" stroke="#333" stroke-width="2" />
+    <line x1="200" y1="210" x2="200" y2="240" stroke="#333" stroke-width="2" />
+    <line x1="400" y1="210" x2="400" y2="240" stroke="#333" stroke-width="2" />
+    <line x1="600" y1="210" x2="600" y2="240" stroke="#333" stroke-width="2" />
+    <polygon points="200,240 195,230 205,230" fill="#333" />
+    <polygon points="400,240 395,230 405,230" fill="#333" />
+    <polygon points="600,240 595,230 605,230" fill="#333" />
+    
+    <!-- 第二级检查 - 左 -->
+    <rect x="100" y="240" width="200" height="50" rx="10" fill="#70AD47" />
+    <text x="200" y="265" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">检查Overlay隧道状态</text>
+    <text x="200" y="285" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">VXLAN/Geneve/IPinIP接口</text>
+    
+    <!-- 第二级检查 - 中 -->
+    <rect x="300" y="240" width="200" height="50" rx="10" fill="#70AD47" />
+    <text x="400" y="265" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">检查路由和转发表</text>
+    <text x="400" y="285" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">路由表、FDB、ARP表</text>
+    
+    <!-- 第二级检查 - 右 -->
+    <rect x="500" y="240" width="200" height="50" rx="10" fill="#70AD47" />
+    <text x="600" y="265" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">检查CNI配置</text>
+    <text x="600" y="285" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">ConfigMap、DaemonSet状态</text>
+    
+    <!-- 连接线 -->
+    <line x1="200" y1="290" x2="200" y2="320" stroke="#333" stroke-width="2" />
+    <line x1="400" y1="290" x2="400" y2="320" stroke="#333" stroke-width="2" />
+    <line x1="600" y1="290" x2="600" y2="320" stroke="#333" stroke-width="2" />
+    <line x1="200" y1="320" x2="400" y2="320" stroke="#333" stroke-width="2" />
+    <line x1="600" y1="320" x2="400" y2="320" stroke="#333" stroke-width="2" />
+    <line x1="400" y1="320" x2="400" y2="350" stroke="#333" stroke-width="2" />
+    <polygon points="400,350 395,340 405,340" fill="#333" />
+    
+    <!-- 第三级检查 -->
+    <rect x="300" y="350" width="200" height="50" rx="10" fill="#ED7D31" />
+    <text x="400" y="375" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">进行网络包捕获分析</text>
+    <text x="400" y="395" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">tcpdump、Wireshark</text>
+    
+    <!-- 连接线 -->
+    <line x1="400" y1="400" x2="400" y2="430" stroke="#333" stroke-width="2" />
+    <polygon points="400,430 395,420 405,420" fill="#333" />
+    
+    <!-- 解决方案 -->
+    <rect x="300" y="430" width="200" height="50" rx="10" fill="#FFC000" />
+    <text x="400" y="455" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">应用解决方案</text>
+    <text x="400" y="475" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">修复配置、重启服务、更新MTU</text>
+    
+    <!-- 命令提示 -->
+    <rect x="50" y="320" width="150" height="130" rx="5" fill="#E7E6E6" />
+    <text x="125" y="340" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">常用命令:</text>
+    <text x="60" y="360" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• ip link show</text>
+    <text x="60" y="380" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• bridge fdb show</text>
+    <text x="60" y="400" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• ip route</text>
+    <text x="60" y="420" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• tcpdump -i any</text>
+    <text x="60" y="440" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">  udp port 4789</text>
+    
+    <!-- 常见问题 -->
+    <rect x="600" y="320" width="150" height="130" rx="5" fill="#E7E6E6" />
+    <text x="675" y="340" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">常见问题:</text>
+    <text x="610" y="360" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• MTU配置不当</text>
+    <text x="610" y="380" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• VXLAN端口被阻断</text>
+    <text x="610" y="400" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• 路由表不正确</text>
+    <text x="610" y="420" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• CNI配置错误</text>
+    <text x="610" y="440" font-family="Arial, sans-serif" font-size="12" text-anchor="start" fill="#333">• 节点间网络隔离</text>
+</svg>

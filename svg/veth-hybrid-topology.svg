@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+    <!-- 定义渐变和滤镜 -->
+    <defs>
+        <!-- 命名空间背景渐变 -->
+        <linearGradient id="namespaceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#e6f7ff;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#bae7ff;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 中心命名空间背景渐变 -->
+        <linearGradient id="centerNamespaceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#fff7e6;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ffe7ba;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 网桥背景渐变 -->
+        <linearGradient id="bridgeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#fcffe6;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#f4ffb8;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 网络设备背景渐变 -->
+        <linearGradient id="deviceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#f6ffed;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#d9f7be;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 1 -->
+        <linearGradient id="vethGradient1" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#ffa39e;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ff7875;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 2 -->
+        <linearGradient id="vethGradient2" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#ffc069;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ffa940;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 3 -->
+        <linearGradient id="vethGradient3" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#b7eb8f;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#95de64;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 4 -->
+        <linearGradient id="vethGradient4" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#adc6ff;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#85a5ff;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 5 -->
+        <linearGradient id="vethGradient5" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#d3adf7;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#b37feb;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 数据包渐变 -->
+        <linearGradient id="packetGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#fff0f6;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ffadd2;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 阴影效果 -->
+        <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#333" flood-opacity="0.3"/>
+        </filter>
+        
+        <!-- 箭头标记 1 -->
+        <marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff7875"/>
+        </marker>
+        
+        <!-- 箭头标记 2 -->
+        <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#ffa940"/>
+        </marker>
+        
+        <!-- 箭头标记 3 -->
+        <marker id="arrow3" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#95de64"/>
+        </marker>
+        
+        <!-- 箭头标记 4 -->
+        <marker id="arrow4" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#85a5ff"/>
+        </marker>
+        
+        <!-- 箭头标记 5 -->
+        <marker id="arrow5" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#b37feb"/>
+        </marker>
+        
+        <!-- 路由箭头标记 -->
+        <marker id="routeArrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#666"/>
+        </marker>
+    </defs>
+    
+    <!-- 背景 -->
+    <rect width="800" height="600" fill="#f5f5f5" />
+    
+    <!-- 标题 -->
+    <text x="400" y="30" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#333">混合网络拓扑</text>
+    <text x="400" y="60" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#666">结合星型、桥接和直连拓扑的复杂网络结构</text>
+    
+    <!-- 中心命名空间 ns1 -->
+    <g id="ns1">
+        <rect x="320" y="100" width="160" height="140" rx="10" ry="10" fill="url(#centerNamespaceGradient)" stroke="#ffc069" stroke-width="2" filter="url(#shadow)" />
+        <text x="400" y="125" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">中心命名空间 ns1</text>
+        
+        <!-- ns1 的设备 -->
+        <rect x="340" y="140" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="400" y="157" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth1-2 (10.0.1.1/24)</text>
+        
+        <rect x="340" y="170" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="400" y="187" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth1-3 (10.0.2.1/24)</text>
+        
+        <rect x="340" y="200" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="400" y="217" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth1-br (10.0.5.1/24)</text>
+    </g>
+    
+    <!-- 命名空间 ns2 (右上) -->
+    <g id="ns2">
+        <rect x="560" y="100" width="160" height="110" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="640" y="125" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns2</text>
+        
+        <!-- ns2 的设备 -->
+        <rect x="580" y="140" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="640" y="157" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth2-1 (10.0.1.2/24)</text>
+        
+        <rect x="580" y="170" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="640" y="187" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth2-4 (10.0.3.2/24)</text>
+    </g>
+    
+    <!-- 命名空间 ns3 (左上) -->
+    <g id="ns3">
+        <rect x="80" y="100" width="160" height="110" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="160" y="125" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns3</text>
+        
+        <!-- ns3 的设备 -->
+        <rect x="100" y="140" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="160" y="157" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth3-1 (10.0.2.3/24)</text>
+        
+        <rect x="100" y="170" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="160" y="187" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth3-4 (10.0.4.3/24)</text>
+    </g>
+    
+    <!-- 命名空间 ns4 (中间) -->
+    <g id="ns4">
+        <rect x="320" y="280" width="160" height="110" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="400" y="305" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns4</text>
+        
+        <!-- ns4 的设备 -->
+        <rect x="340" y="320" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="400" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth4-2 (10.0.3.4/24)</text>
+        
+        <rect x="340" y="350" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="400" y="367" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth4-3 (10.0.4.4/24)</text>
+    </g>
+    
+    <!-- 网桥区域 -->
+    <g id="bridge-area">
+        <rect x="100" y="420" width="600" height="160" rx="10" ry="10" fill="url(#hostNamespaceGradient)" stroke="#b37feb" stroke-width="2" filter="url(#shadow)" />
+        <text x="400" y="445" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">主机命名空间（网桥区域）</text>
+        
+        <!-- 网桥 -->
+        <g id="bridge">
+            <rect x="250" y="460" width="300" height="100" rx="8" ry="8" fill="url(#bridgeGradient)" stroke="#d3f261" stroke-width="2" />
+            <text x="400" y="480" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">Linux 网桥 (br0)</text>
+            <text x="400" y="500" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">IP: 10.0.5.254/24</text>
+            
+            <!-- 网桥端口 -->
+            <rect x="270" y="510" width="80" height="30" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+            <text x="310" y="530" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#333">br-veth1</text>
+            
+            <rect x="360" y="510" width="80" height="30" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+            <text x="400" y="530" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#333">br-veth5</text>
+            
+            <rect x="450" y="510" width="80" height="30" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+            <text x="490" y="530" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#333">br-veth6</text>
+        </g>
+    </g>
+    
+    <!-- 命名空间 ns5 (左下) -->
+    <g id="ns5">
+        <rect x="80" y="280" width="160" height="110" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="160" y="305" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns5</text>
+        
+        <!-- ns5 的设备 -->
+        <rect x="100" y="320" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="160" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth5-br (10.0.5.5/24)</text>
+    </g>
+    
+    <!-- 命名空间 ns6 (右下) -->
+    <g id="ns6">
+        <rect x="560" y="280" width="160" height="110" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="640" y="305" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns6</text>
+        
+        <!-- ns6 的设备 -->
+        <rect x="580" y="320" width="120" height="25" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="640" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth6-br (10.0.5.6/24)</text>
+    </g>
+    
+    <!-- Veth 连接 -->
+    <!-- ns1 到 ns2 的连接 (星型) -->
+    <path d="M 460 150 L 580 150" stroke="url(#vethGradient1)" stroke-width="3" fill="none" marker-end="url(#arrow1)" />
+    <text x="520" y="140" font-family="Arial, sans-serif" font-size="10" fill="#333">10.0.1.0/24</text>
+    
+    <!-- ns1 到 ns3 的连接 (星型) -->
+    <path d="M 340 180 L 220 180" stroke="url(#vethGradient2)" stroke-width="3" fill="none" marker-end="url(#arrow2)" />
+    <text x="280" y="170" font-family="Arial, sans-serif" font-size="10" fill="#333">10.0.2.0/24</text>
+    
+    <!-- ns2 到 ns4 的连接 (三角形) -->
+    <path d="M 640 195 L 400 320" stroke="url(#vethGradient3)" stroke-width="3" fill="none" marker-end="url(#arrow3)" />
+    <text x="520" y="240" font-family="Arial, sans-serif" font-size="10" fill="#333">10.0.3.0/24</text>
+    
+    <!-- ns3 到 ns4 的连接 (三角形) -->
+    <path d="M 160 195 L 400 350" stroke="url(#vethGradient4)" stroke-width="3" fill="none" marker-end="url(#arrow4)" />
+    <text x="280" y="240" font-family="Arial, sans-serif" font-size="10" fill="#333">10.0.4.0/24</text>
+    
+    <!-- ns1 到网桥的连接 -->
+    <path d="M 400 225 L 310 510" stroke="url(#vethGradient5)" stroke-width="3" fill="none" marker-end="url(#arrow5)" />
+    <text x="340" y="370" font-family="Arial, sans-serif" font-size="10" fill="#333">10.0.5.0/24</text>
+    
+    <!-- ns5 到网桥的连接 -->
+    <path d="M 160 345 L 400 510" stroke="url(#vethGradient5)" stroke-width="3" fill="none" marker-end="url(#arrow5)" />
+    
+    <!-- ns6 到网桥的连接 -->
+    <path d="M 640 345 L 490 510" stroke="url(#vethGradient5)" stroke-width="3" fill="none" marker-end="url(#arrow5)" />
+    
+    <!-- 路由路径示例 -->
+    <path d="M 160 320 C 200,400 300,450 400 510" stroke="#666" stroke-width="1.5" stroke-dasharray="5,3" />
+    <path d="M 400 510 C 450,450 550,400 640 320" stroke="#666" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#routeArrow)" />
+    <text x="400" y="400" font-family="Arial, sans-serif" font-size="10" fill="#666">通过网桥的路由</text>
+    
+    <!-- 数据包示例 -->
+    <g class="packet packet1" transform="translate(520, 150)">
+        <rect x="-15" y="-8" width="30" height="16" rx="3" ry="3" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="2" font-family="Arial, sans-serif" font-size="6" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <g class="packet packet2" transform="translate(280, 180)">
+        <rect x="-15" y="-8" width="30" height="16" rx="3" ry="3" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="2" font-family="Arial, sans-serif" font-size="6" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <g class="packet packet3" transform="translate(520, 240)">
+        <rect x="-15" y="-8" width="30" height="16" rx="3" ry="3" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="2" font-family="Arial, sans-serif" font-size="6" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <g class="packet packet4" transform="translate(280, 240)">
+        <rect x="-15" y="-8" width="30" height="16" rx="3" ry="3" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="2" font-family="Arial, sans-serif" font-size="6" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <g class="packet packet5" transform="translate(340, 370)">
+        <rect x="-15" y="-8" width="30" height="16" rx="3" ry="3" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="2" font-family="Arial, sans-serif" font-size="6" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <!-- 图例 -->
+    <g id="legend" transform="translate(120, 550)">
+        <rect x="0" y="0" width="12" height="8" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="1" />
+        <text x="15" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">边缘命名空间</text>
+        
+        <rect x="100" y="0" width="12" height="8" fill="url(#centerNamespaceGradient)" stroke="#ffc069" stroke-width="1" />
+        <text x="115" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">中心命名空间</text>
+        
+        <rect x="200" y="0" width="12" height="8" fill="url(#hostNamespaceGradient)" stroke="#b37feb" stroke-width="1" />
+        <text x="215" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">主机命名空间</text>
+        
+        <rect x="300" y="0" width="12" height="8" fill="url(#bridgeGradient)" stroke="#d3f261" stroke-width="1" />
+        <text x="315" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">Linux 网桥</text>
+        
+        <rect x="400" y="0" width="12" height="8" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="415" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">网络设备</text>
+        
+        <line x1="500" y1="4" x2="512" y2="4" stroke="url(#vethGradient1)" stroke-width="2" marker-end="url(#arrow1)" />
+        <text x="515" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">Veth 对连接</text>
+        
+        <line x1="600" y1="4" x2="612" y2="4" stroke="#666" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#routeArrow)" />
+        <text x="615" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">路由路径</text>
+        
+        <rect x="700" y="0" width="12" height="8" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="715" y="7" font-family="Arial, sans-serif" font-size="8" fill="#333">数据包</text>
+    </g>
+    
+    <!-- 说明文本 -->
+    <g id="description" transform="translate(120, 570)">
+        <text x="0" y="0" font-family="Arial, sans-serif" font-size="10" fill="#333">混合拓扑特点：</text>
+        <text x="0" y="15" font-family="Arial, sans-serif" font-size="8" fill="#666">• 结合了星型拓扑（ns1为中心连接ns2和ns3）</text>
+        <text x="0" y="30" font-family="Arial, sans-serif" font-size="8" fill="#666">• 包含三角形拓扑（ns2、ns3和ns4相互连接）</text>
+        <text x="0" y="45" font-family="Arial, sans-serif" font-size="8" fill="#666">• 使用网桥连接ns1、ns5和ns6</text>
+        <text x="400" y="15" font-family="Arial, sans-serif" font-size="8" fill="#666">• 提供多种路由选择</text>
+        <text x="400" y="30" font-family="Arial, sans-serif" font-size="8" fill="#666">• 适合复杂网络环境模拟</text>
+        <text x="400" y="45" font-family="Arial, sans-serif" font-size="8" fill="#666">• 可以模拟多种网络故障和恢复场景</text>
+    </g>
+    
+    <!-- 动画 -->
+    <style>
+        @keyframes movePacket1 {
+            0% { transform: translate(520, 150); }
+            50% { transform: translate(460, 150); }
+            100% { transform: translate(520, 150); }
+        }
+        
+        @keyframes movePacket2 {
+            0% { transform: translate(280, 180); }
+            50% { transform: translate(340, 180); }
+            100% { transform: translate(280, 180); }
+        }
+        
+        @keyframes movePacket3 {
+            0% { transform: translate(520, 240); }
+            50% { transform: translate(400, 320); }
+            100% { transform: translate(520, 240); }
+        }
+        
+        @keyframes movePacket4 {
+            0% { transform: translate(280, 240); }
+            50% { transform: translate(400, 350); }
+            100% { transform: translate(280, 240); }
+        }
+        
+        @keyframes movePacket5 {
+            0% { transform: translate(340, 370); }
+            50% { transform: translate(400, 510); }
+            100% { transform: translate(340, 370); }
+        }
+        
+        .packet1 {
+            animation: movePacket1 5s infinite;
+        }
+        
+        .packet2 {
+            animation: movePacket2 5s infinite;
+            animation-delay: 1s;
+        }
+        
+        .packet3 {
+            animation: movePacket3 5s infinite;
+            animation-delay: 2s;
+        }
+        
+        .packet4 {
+            animation: movePacket4 5s infinite;
+            animation-delay: 3s;
+        }
+        
+        .packet5 {
+            animation: movePacket5 5s infinite;
+            animation-delay: 4s;
+        }
+    </style>
+</svg>

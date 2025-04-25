@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对混合网络拓扑 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对混合网络拓扑</h2>
+            <p>混合网络拓扑是一种结合了多种基本拓扑（如星型、环形、网桥等）优点的网络结构。在 Linux 网络命名空间和 Veth 对的环境中，混合拓扑可以提供更高的灵活性、可靠性和性能。本页将详细介绍混合拓扑的原理、实现方法和实际应用场景。</p>
+            
+            <div class="diagram-container">
+                <img src="svg/veth-hybrid-topology.svg" alt="混合拓扑示意图" style="max-width: 100%; height: auto;">
+            </div>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces-basics.html">Veth 对与网络命名空间基础</a></li>
+                    <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                    <li><a href="veth-triangle-topology.html">三角形网络拓扑</a></li>
+                    <li><a href="veth-star-topology.html">星型网络拓扑</a></li>
+                    <li><a href="veth-bridge-topology.html">网桥网络拓扑</a></li>
+                    <li><a href="veth-ring-topology.html">环形网络拓扑</a></li>
+                    <li><a href="veth-hybrid-topology.html" class="active">混合网络拓扑</a></li>
+                    <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                    <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>混合拓扑原理</h2>
+            <p>混合拓扑是一种将多种基本拓扑（如星型、环形、网桥等）结合起来的网络结构。在 Linux 网络命名空间的环境中，这意味着我们可以根据需要灵活组合不同的连接方式，形成一个更加复杂但也更加强大的网络。</p>
+            
+            <h3>混合拓扑的特点</h3>
+            <ul>
+                <li><strong>灵活性</strong>：可以根据需求组合不同的拓扑结构</li>
+                <li><strong>可靠性</strong>：可以提供多种冗余路径，提高网络可靠性</li>
+                <li><strong>性能优化</strong>：可以根据流量模式优化网络性能</li>
+                <li><strong>可扩展性</strong>：可以灵活扩展网络规模</li>
+                <li><strong>复杂性</strong>：配置和管理较为复杂</li>
+                <li><strong>资源消耗</strong>：可能需要更多的网络资源</li>
+            </ul>
+            
+            <h3>常见的混合拓扑类型</h3>
+            <p>混合拓扑有多种组合方式，以下是一些常见的混合拓扑类型：</p>
+            
+            <h4>星型-网桥混合拓扑</h4>
+            <p>这种拓扑结合了星型拓扑和网桥拓扑的特点。中心节点使用网桥连接多个子网络，每个子网络内部使用星型拓扑。这种拓扑适合于层次化的网络结构，如企业网络。</p>
+            
+            <h4>环形-星型混合拓扑</h4>
+            <p>这种拓扑结合了环形拓扑和星型拓扑的特点。多个星型网络通过环形连接，形成一个更大的网络。这种拓扑适合于需要高可靠性和扩展性的网络，如电信骨干网。</p>
+            
+            <h4>网格-星型混合拓扑</h4>
+            <p>这种拓扑结合了网格拓扑和星型拓扑的特点。多个星型网络通过网格连接，形成一个更加冗余的网络。这种拓扑适合于对可靠性要求极高的网络，如金融交易网络。</p>
+            
+            <h4>树形-网桥混合拓扑</h4>
+            <p>这种拓扑结合了树形拓扑和网桥拓扑的特点。使用网桥连接多个子网络，形成一个树形结构。这种拓扑适合于层次化的网络结构，如数据中心网络。</p>
+        </section>
+
+        <section>
+            <h2>混合拓扑在容器网络中的应用</h2>
+            <p>混合拓扑在容器网络中有多种应用场景：</p>
+            
+            <h3>多集群 Kubernetes 网络</h3>
+            <p>在多集群 Kubernetes 环境中，可以使用混合拓扑连接不同的集群。例如，可以使用星型拓扑连接集群内的节点，使用环形拓扑连接不同的集群，形成一个更加可靠的网络。</p>
+            
+            <h3>微服务架构</h3>
+            <p>在微服务架构中，可以使用混合拓扑连接不同的服务。例如，可以使用网桥拓扑连接同一服务的多个实例，使用星型拓扑连接不同的服务，形成一个更加灵活的网络。</p>
+            
+            <h3>混合云环境</h3>
+            <p>在混合云环境中，可以使用混合拓扑连接不同的云平台。例如，可以使用网桥拓扑连接同一云平台的资源，使用环形拓扑连接不同的云平台，形成一个更加可靠的网络。</p>
+            
+            <h3>边缘计算</h3>
+            <p>在边缘计算场景中，可以使用混合拓扑连接边缘节点和云端。例如，可以使用星型拓扑连接边缘节点，使用网桥拓扑连接云端资源，形成一个更加灵活的网络。</p>
+        </section>
+
+        <section>
+            <h2>基本实验：创建星型-网桥混合拓扑</h2>
+            <p>在这个实验中，我们将创建一个星型-网桥混合拓扑，包含一个中心节点、两个网桥和多个网络命名空间。</p>
+            
+            <h3>实验目标</h3>
+            <p>创建如下拓扑：</p>
+            <ul>
+                <li>一个中心节点（主机命名空间）</li>
+                <li>两个网桥：br1 和 br2</li>
+                <li>br1 连接三个网络命名空间：ns1-1、ns1-2、ns1-3</li>
+                <li>br2 连接三个网络命名空间：ns2-1、ns2-2、ns2-3</li>
+                <li>中心节点连接两个网桥，并启用 IP 转发</li>
+            </ul>
+            
+            <h3>实验步骤</h3>
+            <div class="code-block">
+# 步骤 1：创建六个网络命名空间
+sudo ip netns add ns1-1
+sudo ip netns add ns1-2
+sudo ip netns add ns1-3
+sudo ip netns add ns2-1
+sudo ip netns add ns2-2
+sudo ip netns add ns2-3
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <div class="code-block">
+# 步骤 2：创建两个网桥
+sudo ip link add br1 type bridge
+sudo ip link add br2 type bridge
+sudo ip link set br1 up
+sudo ip link set br2 up
+
+# 为网桥分配 IP 地址
+sudo ip addr add 192.168.1.1/24 dev br1
+sudo ip addr add 192.168.2.1/24 dev br2
+
+# 验证网桥创建
+ip link show type bridge
+ip addr show br1
+ip addr show br2
+</div>
+            
+            <div class="code-block">
+# 步骤 3：创建 Veth 对，连接命名空间和网桥
+# br1 的连接
+sudo ip link add veth1-1-br type veth peer name veth1-1-ns
+sudo ip link add veth1-2-br type veth peer name veth1-2-ns
+sudo ip link add veth1-3-br type veth peer name veth1-3-ns
+
+# br2 的连接
+sudo ip link add veth2-1-br type veth peer name veth2-1-ns
+sudo ip link add veth2-2-br type veth peer name veth2-2-ns
+sudo ip link add veth2-3-br type veth peer name veth2-3-ns
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <div class="code-block">
+# 步骤 4：将 Veth 设备分配到相应的网络命名空间
+# br1 的命名空间
+sudo ip link set veth1-1-ns netns ns1-1
+sudo ip link set veth1-2-ns netns ns1-2
+sudo ip link set veth1-3-ns netns ns1-3
+
+# br2 的命名空间
+sudo ip link set veth2-1-ns netns ns2-1
+sudo ip link set veth2-2-ns netns ns2-2
+sudo ip link set veth2-3-ns netns ns2-3
+
+# 验证分配结果
+sudo ip netns exec ns1-1 ip link show
+sudo ip netns exec ns1-2 ip link show
+sudo ip netns exec ns1-3 ip link show
+sudo ip netns exec ns2-1 ip link show
+sudo ip netns exec ns2-2 ip link show
+sudo ip netns exec ns2-3 ip link show
+</div>
+            
+            <div class="code-block">
+# 步骤 5：将 Veth 设备连接到网桥
+# br1 的连接
+sudo ip link set veth1-1-br master br1
+sudo ip link set veth1-2-br master br1
+sudo ip link set veth1-3-br master br1
+
+# br2 的连接
+sudo ip link set veth2-1-br master br2
+sudo ip link set veth2-2-br master br2
+sudo ip link set veth2-3-br master br2
+
+# 启用网桥端的 Veth 设备
+sudo ip link set veth1-1-br up
+sudo ip link set veth1-2-br up
+sudo ip link set veth1-3-br up
+sudo ip link set veth2-1-br up
+sudo ip link set veth2-2-br up
+sudo ip link set veth2-3-br up
+
+# 验证网桥连接
+bridge link show
+</div>
+            
+            <div class="code-block">
+# 步骤 6：配置命名空间中的 Veth 设备
+# br1 的命名空间
+sudo ip netns exec ns1-1 ip addr add 192.168.1.11/24 dev veth1-1-ns
+sudo ip netns exec ns1-1 ip link set veth1-1-ns up
+sudo ip netns exec ns1-1 ip link set lo up
+sudo ip netns exec ns1-1 ip route add default via 192.168.1.1
+
+sudo ip netns exec ns1-2 ip addr add 192.168.1.12/24 dev veth1-2-ns
+sudo ip netns exec ns1-2 ip link set veth1-2-ns up
+sudo ip netns exec ns1-2 ip link set lo up
+sudo ip netns exec ns1-2 ip route add default via 192.168.1.1
+
+sudo ip netns exec ns1-3 ip addr add 192.168.1.13/24 dev veth1-3-ns
+sudo ip netns exec ns1-3 ip link set veth1-3-ns up
+sudo ip netns exec ns1-3 ip link set lo up
+sudo ip netns exec ns1-3 ip route add default via 192.168.1.1
+
+# br2 的命名空间
+sudo ip netns exec ns2-1 ip addr add 192.168.2.11/24 dev veth2-1-ns
+sudo ip netns exec ns2-1 ip link set veth2-1-ns up
+sudo ip netns exec ns2-1 ip link set lo up
+sudo ip netns exec ns2-1 ip route add default via 192.168.2.1
+
+sudo ip netns exec ns2-2 ip addr add 192.168.2.12/24 dev veth2-2-ns
+sudo ip netns exec ns2-2 ip link set veth2-2-ns up
+sudo ip netns exec ns2-2 ip link set lo up
+sudo ip netns exec ns2-2 ip route add default via 192.168.2.1
+
+sudo ip netns exec ns2-3 ip addr add 192.168.2.13/24 dev veth2-3-ns
+sudo ip netns exec ns2-3 ip link set veth2-3-ns up
+sudo ip netns exec ns2-3 ip link set lo up
+sudo ip netns exec ns2-3 ip route add default via 192.168.2.1
+
+# 验证配置
+sudo ip netns exec ns1-1 ip addr
+sudo ip netns exec ns1-2 ip addr
+sudo ip netns exec ns1-3 ip addr
+sudo ip netns exec ns2-1 ip addr
+sudo ip netns exec ns2-2 ip addr
+sudo ip netns exec ns2-3 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 7：启用 IP 转发
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# 验证 IP 转发是否启用
+sysctl net.ipv4.ip_forward
+</div>
+            
+            <div class="code-block">
+# 步骤 8：测试同一网桥内的连通性
+# br1 内的连通性
+sudo ip netns exec ns1-1 ping -c 3 192.168.1.12  # ns1-1 到 ns1-2
+sudo ip netns exec ns1-1 ping -c 3 192.168.1.13  # ns1-1 到 ns1-3
+sudo ip netns exec ns1-2 ping -c 3 192.168.1.13  # ns1-2 到 ns1-3
+
+# br2 内的连通性
+sudo ip netns exec ns2-1 ping -c 3 192.168.2.12  # ns2-1 到 ns2-2
+sudo ip netns exec ns2-1 ping -c 3 192.168.2.13  # ns2-1 到 ns2-3
+sudo ip netns exec ns2-2 ping -c 3 192.168.2.13  # ns2-2 到 ns2-3
+</div>
+            
+            <div class="code-block">
+# 步骤 9：测试跨网桥的连通性
+# 从 br1 到 br2
+sudo ip netns exec ns1-1 ping -c 3 192.168.2.11  # ns1-1 到 ns2-1
+sudo ip netns exec ns1-2 ping -c 3 192.168.2.12  # ns1-2 到 ns2-2
+sudo ip netns exec ns1-3 ping -c 3 192.168.2.13  # ns1-3 到 ns2-3
+
+# 从 br2 到 br1
+sudo ip netns exec ns2-1 ping -c 3 192.168.1.11  # ns2-1 到 ns1-1
+sudo ip netns exec ns2-2 ping -c 3 192.168.1.12  # ns2-2 到 ns1-2
+sudo ip netns exec ns2-3 ping -c 3 192.168.1.13  # ns2-3 到 ns1-3
+</div>
+            
+            <div class="code-block">
+# 步骤 10：清理实验环境
+sudo ip link delete br1  # 删除网桥会自动删除连接到它的设备
+sudo ip link delete br2
+sudo ip netns delete ns1-1
+sudo ip netns delete ns1-2
+sudo ip netns delete ns1-3
+sudo ip netns delete ns2-1
+sudo ip netns delete ns2-2
+sudo ip netns delete ns2-3
+
+# 验证清理结果
+ip netns list
+bridge link show
+</div>
+            
+            <p>通过这个实验，我们成功创建了一个星型-网桥混合拓扑，使两个网桥连接的命名空间可以相互通信。这种拓扑适合于层次化的网络结构，如企业网络或数据中心网络。</p>
+        </section>
+
+        <section>
+            <h2>高级实验：创建环形-星型混合拓扑</h2>
+            <p>在这个高级实验中，我们将创建一个环形-星型混合拓扑，包含四个中心节点形成环形，每个中心节点连接多个网络命名空间形成星型。</p>
+            
+            <h3>实验目标</h3>
+            <p>创建如下拓扑：</p>
+            <ul>
+                <li>四个中心节点（网络命名空间）：center1、center2、center3、center4</li>
+                <li>中心节点通过 Veth 对连接成环形</li>
+                <li>每个中心节点连接两个网络命名空间，形成星型</li>
+                <li>所有节点都可以相互通信</li>
+            </ul>
+            
+            <p>这个实验的详细步骤将在 <a href="veth-hybrid-topology-advanced.html">环形-星型混合拓扑</a> 页面中介绍。</p>
+        </section>
+
+        <section>
+            <h2>混合拓扑的设计考虑因素</h2>
+            <p>设计混合拓扑时，需要考虑多种因素，以确保网络满足需求：</p>
+            
+            <h3>性能需求</h3>
+            <p>不同的应用对网络性能有不同的需求。例如，实时应用需要低延迟，而数据密集型应用需要高带宽。设计混合拓扑时，需要根据应用的性能需求选择合适的拓扑组合。</p>
+            
+            <h3>可靠性需求</h3>
+            <p>不同的应用对网络可靠性有不同的需求。例如，关键业务应用需要高可靠性，而非关键业务应用可以接受一定的故障。设计混合拓扑时，需要根据应用的可靠性需求选择合适的冗余策略。</p>
+            
+            <h3>扩展性需求</h3>
+            <p>网络规模可能随着业务发展而增长。设计混合拓扑时，需要考虑未来的扩展需求，选择易于扩展的拓扑组合。</p>
+            
+            <h3>安全性需求</h3>
+            <p>不同的应用对网络安全有不同的需求。例如，金融应用需要高安全性，而内部应用可能对安全要求较低。设计混合拓扑时，需要根据应用的安全需求选择合适的隔离策略。</p>
+            
+            <h3>管理复杂性</h3>
+            <p>混合拓扑的管理复杂性通常高于单一拓扑。设计混合拓扑时，需要考虑管理团队的能力和工具支持，选择易于管理的拓扑组合。</p>
+            
+            <h3>成本考虑</h3>
+            <p>不同的拓扑组合有不同的成本。例如，网格拓扑需要更多的连接，成本较高；而星型拓扑连接较少，成本较低。设计混合拓扑时，需要在性能、可靠性和成本之间找到平衡。</p>
+        </section>
+
+        <section>
+            <h2>混合拓扑在 Kubernetes 中的应用</h2>
+            <p>混合拓扑在 Kubernetes 中有多种应用场景：</p>
+            
+            <h3>多集群 Kubernetes</h3>
+            <p>在多集群 Kubernetes 环境中，可以使用混合拓扑连接不同的集群。例如，可以使用星型拓扑连接集群内的节点，使用环形拓扑连接不同的集群，形成一个更加可靠的网络。</p>
+            
+            <h3>混合云 Kubernetes</h3>
+            <p>在混合云 Kubernetes 环境中，可以使用混合拓扑连接不同的云平台。例如，可以使用网桥拓扑连接同一云平台的资源，使用环形拓扑连接不同的云平台，形成一个更加可靠的网络。</p>
+            
+            <h3>边缘 Kubernetes</h3>
+            <p>在边缘 Kubernetes 环境中，可以使用混合拓扑连接边缘节点和云端。例如，可以使用星型拓扑连接边缘节点，使用网桥拓扑连接云端资源，形成一个更加灵活的网络。</p>
+            
+            <h3>大规模 Kubernetes 集群</h3>
+            <p>在大规模 Kubernetes 集群中，可以使用混合拓扑优化网络性能。例如，可以使用网桥拓扑连接同一机架的节点，使用环形拓扑连接不同的机架，形成一个更加高效的网络。</p>
+        </section>
+
+        <section>
+            <h2>混合拓扑的性能分析</h2>
+            <p>混合拓扑的性能取决于具体的拓扑组合和配置。以下是一些关键性能指标的分析：</p>
+            
+            <h3>延迟</h3>
+            <p>混合拓扑的延迟取决于节点之间的路径长度。通过优化拓扑结构和路由策略，可以减少延迟。例如，可以将频繁通信的节点放在同一子网中，减少跨子网通信的延迟。</p>
+            
+            <h3>吞吐量</h3>
+            <p>混合拓扑的吞吐量取决于网络的带宽和拥塞情况。通过优化拓扑结构和流量分配，可以提高吞吐量。例如，可以使用多路径路由，将流量分散到多个路径上，减少拥塞。</p>
+            
+            <h3>可靠性</h3>
+            <p>混合拓扑的可靠性取决于网络的冗余度和故障恢复能力。通过优化拓扑结构和故障恢复策略，可以提高可靠性。例如，可以使用环形拓扑提供冗余路径，使用动态路由协议自动发现和恢复故障。</p>
+            
+            <h3>扩展性</h3>
+            <p>混合拓扑的扩展性取决于网络的结构和管理复杂性。通过优化拓扑结构和管理工具，可以提高扩展性。例如，可以使用分层结构，将网络分为多个子网，使扩展更加灵活。</p>
+            
+            <h3>资源消耗</h3>
+            <p>混合拓扑的资源消耗取决于网络的规模和复杂性。通过优化拓扑结构和资源分配，可以减少资源消耗。例如，可以使用虚拟化技术，将多个逻辑网络共享物理资源，提高资源利用率。</p>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <ul>
+                <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                <li><a href="veth-triangle-topology.html">三角形网络拓扑</a></li>
+                <li><a href="veth-star-topology.html">星型网络拓扑</a></li>
+                <li><a href="veth-bridge-topology.html">网桥网络拓扑</a></li>
+                <li><a href="veth-ring-topology.html">环形网络拓扑</a></li>
+                <li><a href="veth-hybrid-topology-advanced.html">环形-星型混合拓扑</a></li>
+                <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+            </ul>
+            <div class="navigation-buttons">
+                <a href="veth-ring-topology.html" class="button">上一页：环形网络拓扑</a>
+                <a href="veth-routing-advanced.html" class="button">下一页：Veth 对高级路由配置</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对的创建与管理 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对的创建与管理</h2>
+            <p>本页详细介绍如何创建、配置和管理 Veth 对，包括各种高级配置选项和管理技巧。掌握这些操作对于理解和调试容器网络至关重要。</p>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html" class="active">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces.html">Veth 对与网络命名空间</a></li>
+                    <li><a href="veth-bridges.html">Veth 对与网桥</a></li>
+                    <li><a href="veth-kubernetes.html">Veth 对在 Kubernetes 中的应用</a></li>
+                    <li><a href="veth-troubleshooting.html">Veth 对故障排除</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的创建</h2>
+            <p>创建 Veth 对是使用 Linux 虚拟网络的第一步。以下是创建 Veth 对的详细方法：</p>
+            
+            <h3>基本创建方法</h3>
+            <div class="code-block">
+# 使用 ip link 命令创建 Veth 对
+sudo ip link add veth0 type veth peer name veth1
+
+# 验证创建结果
+ip link show veth0
+ip link show veth1
+            </div>
+            
+            <p>上述命令创建了一对名为 veth0 和 veth1 的 Veth 设备。默认情况下，这两个设备都位于主机的网络命名空间中，并且处于 DOWN 状态。</p>
+            
+            <h3>创建时指定高级选项</h3>
+            <div class="code-block">
+# 创建 Veth 对并指定 MTU
+sudo ip link add veth0 mtu 9000 type veth peer name veth1 mtu 9000
+
+# 创建 Veth 对并指定 MAC 地址
+sudo ip link add veth0 address 02:00:00:00:00:01 type veth peer name veth1 address 02:00:00:00:00:02
+
+# 创建 Veth 对并指定队列长度
+sudo ip link add veth0 txqueuelen 10000 type veth peer name veth1 txqueuelen 10000
+            </div>
+            
+            <div class="info-box">
+                <h3>Veth 对命名约定</h3>
+                <p>虽然可以为 Veth 对的两端使用任意名称，但在实际应用中通常采用一些命名约定：</p>
+                <ul>
+                    <li><strong>vethX/vethY</strong>：简单的数字编号，如 veth0/veth1</li>
+                    <li><strong>vethX/peer_vethX</strong>：使用 peer_ 前缀表示对端，如 veth0/peer_veth0</li>
+                    <li><strong>veth{容器ID简写}</strong>：在容器环境中，通常使用容器 ID 的前几位作为 veth 名称的一部分</li>
+                    <li><strong>veth{位置}-{用途}</strong>：如 veth-host-bridge（主机端连接到网桥的 veth）和 veth-container（容器端的 veth）</li>
+                </ul>
+                <p>在 Kubernetes 环境中，CNI 插件通常会使用更复杂的命名方案，如 Calico 使用 cali{hash} 格式。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的基本配置</h2>
+            <p>创建 Veth 对后，需要进行一系列配置才能使其正常工作：</p>
+            
+            <h3>配置 IP 地址</h3>
+            <div class="code-block">
+# 为 Veth 设备配置 IPv4 地址
+sudo ip addr add 192.168.1.1/24 dev veth0
+sudo ip addr add 192.168.1.2/24 dev veth1
+
+# 为 Veth 设备配置 IPv6 地址
+sudo ip -6 addr add fd00::1/64 dev veth0
+sudo ip -6 addr add fd00::2/64 dev veth1
+
+# 查看配置结果
+ip addr show veth0
+ip addr show veth1
+            </div>
+            
+            <h3>启用 Veth 设备</h3>
+            <div class="code-block">
+# 启用 Veth 设备
+sudo ip link set veth0 up
+sudo ip link set veth1 up
+
+# 验证设备状态
+ip link show veth0 | grep "state UP"
+ip link show veth1 | grep "state UP"
+            </div>
+            
+            <h3>配置 MTU</h3>
+            <p>MTU（最大传输单元）是网络设备能够处理的最大数据包大小。在某些场景下，可能需要调整 Veth 对的 MTU：</p>
+            <div class="code-block">
+# 修改 Veth 设备的 MTU
+sudo ip link set veth0 mtu 1500
+sudo ip link set veth1 mtu 1500
+
+# 注意：Veth 对两端的 MTU 可以不同，但通常建议保持一致
+            </div>
+            
+            <div class="info-box">
+                <h3>MTU 设置的注意事项</h3>
+                <p>在容器网络中，MTU 设置需要特别注意：</p>
+                <ul>
+                    <li>如果 Veth 对连接到网桥，MTU 应不大于网桥的 MTU</li>
+                    <li>如果使用 VXLAN 等隧道技术，需要考虑隧道封装的开销（通常为 50 字节），相应减小 Veth 的 MTU</li>
+                    <li>不匹配的 MTU 可能导致大数据包被丢弃或分片，影响性能</li>
+                </ul>
+            </div>
+            
+            <h3>配置队列长度</h3>
+            <p>txqueuelen（发送队列长度）决定了设备可以排队等待发送的数据包数量，可以根据需要进行调整：</p>
+            <div class="code-block">
+# 修改 Veth 设备的发送队列长度
+sudo ip link set veth0 txqueuelen 1000
+sudo ip link set veth1 txqueuelen 1000
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的高级配置</h2>
+            <p>除了基本配置外，Veth 对还支持多种高级配置选项：</p>
+            
+            <h3>配置 MAC 地址</h3>
+            <div class="code-block">
+# 修改 Veth 设备的 MAC 地址
+sudo ip link set veth0 address 02:00:00:00:00:01
+sudo ip link set veth1 address 02:00:00:00:00:02
+
+# 查看 MAC 地址
+ip link show veth0 | grep "link/ether"
+ip link show veth1 | grep "link/ether"
+            </div>
+            
+            <h3>配置网络命名空间</h3>
+            <p>Veth 对的一个重要用途是连接不同的网络命名空间：</p>
+            <div class="code-block">
+# 创建网络命名空间
+sudo ip netns add ns1
+
+# 将 veth1 移动到 ns1 命名空间
+sudo ip link set veth1 netns ns1
+
+# 在 ns1 中配置 veth1
+sudo ip netns exec ns1 ip addr add 192.168.1.2/24 dev veth1
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns1 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr show veth1
+            </div>
+            
+            <h3>配置 VLAN 标记</h3>
+            <p>Veth 对支持 VLAN 标记，可以用于实现 VLAN 隔离：</p>
+            <div class="code-block">
+# 创建 VLAN 子接口
+sudo ip link add link veth0 name veth0.100 type vlan id 100
+sudo ip link add link veth1 name veth1.100 type vlan id 100
+
+# 配置 VLAN 子接口
+sudo ip addr add 192.168.100.1/24 dev veth0.100
+sudo ip addr add 192.168.100.2/24 dev veth1.100
+
+# 启用 VLAN 子接口
+sudo ip link set veth0.100 up
+sudo ip link set veth1.100 up
+            </div>
+            
+            <h3>配置 QoS（流量控制）</h3>
+            <p>可以使用 Linux 的流量控制（tc）工具为 Veth 设备配置 QoS 策略：</p>
+            <div class="code-block">
+# 为 veth0 配置简单的速率限制（1Mbit/s）
+sudo tc qdisc add dev veth0 root tbf rate 1mbit burst 32kbit latency 400ms
+
+# 查看 QoS 配置
+sudo tc qdisc show dev veth0
+
+# 删除 QoS 配置
+sudo tc qdisc del dev veth0 root
+            </div>
+            
+            <h3>配置多播</h3>
+            <p>Veth 对默认支持多播，但可以根据需要启用或禁用：</p>
+            <div class="code-block">
+# 禁用多播
+sudo ip link set veth0 multicast off
+
+# 启用多播
+sudo ip link set veth0 multicast on
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的监控和调试</h2>
+            <p>监控和调试 Veth 对是网络故障排除的重要部分：</p>
+            
+            <h3>查看 Veth 对统计信息</h3>
+            <div class="code-block">
+# 查看基本统计信息
+ip -s link show veth0
+ip -s link show veth1
+
+# 查看详细统计信息
+ip -s -s link show veth0
+            </div>
+            
+            <h3>使用 ethtool 查看 Veth 设备信息</h3>
+            <div class="code-block">
+# 安装 ethtool（如果尚未安装）
+sudo apt-get install ethtool  # Debian/Ubuntu
+sudo yum install ethtool      # CentOS/RHEL
+
+# 查看 Veth 设备信息
+sudo ethtool veth0
+
+# 查看驱动信息
+sudo ethtool -i veth0
+            </div>
+            
+            <h3>使用 tcpdump 抓包分析</h3>
+            <div class="code-block">
+# 在 veth0 上抓包
+sudo tcpdump -i veth0 -n
+
+# 抓取特定类型的数据包
+sudo tcpdump -i veth0 -n 'icmp'
+
+# 保存抓包结果到文件
+sudo tcpdump -i veth0 -w veth0_capture.pcap
+            </div>
+            
+            <h3>使用 ping 测试连通性</h3>
+            <div class="code-block">
+# 测试 veth0 和 veth1 之间的连通性
+ping -c 3 192.168.1.2 -I veth0
+
+# 如果 veth1 在另一个命名空间
+sudo ip netns exec ns1 ping -c 3 192.168.1.1
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的管理</h2>
+            <p>以下是 Veth 对的日常管理操作：</p>
+            
+            <h3>修改 Veth 设备名称</h3>
+            <div class="code-block">
+# 重命名 Veth 设备
+sudo ip link set veth0 down
+sudo ip link set veth0 name veth0-renamed
+sudo ip link set veth0-renamed up
+
+# 注意：重命名后需要重新配置 IP 地址等
+            </div>
+            
+            <h3>删除 Veth 对</h3>
+            <div class="code-block">
+# 删除 Veth 对（只需删除一端，另一端会自动删除）
+sudo ip link delete veth0
+
+# 如果 veth1 在另一个命名空间，也可以从该命名空间删除
+sudo ip netns exec ns1 ip link delete veth1
+
+# 验证删除结果
+ip link show veth0 2>/dev/null || echo "veth0 已删除"
+ip link show veth1 2>/dev/null || echo "veth1 已删除"
+            </div>
+            
+            <h3>批量管理 Veth 对</h3>
+            <p>在大规模环境中，可能需要批量管理 Veth 对：</p>
+            <div class="code-block">
+# 查找所有 Veth 设备
+ip link show type veth
+
+# 批量删除所有 Veth 设备（谨慎使用）
+for dev in $(ip link show type veth | grep -o "veth[^:]*"); do
+    sudo ip link delete $dev 2>/dev/null
+done
+            </div>
+            
+            <div class="info-box">
+                <h3>Veth 对的生命周期管理</h3>
+                <p>在容器环境中，Veth 对的生命周期通常与容器一致：</p>
+                <ul>
+                    <li>容器创建时，CNI 插件创建 Veth 对并配置网络</li>
+                    <li>容器运行期间，Veth 对保持活动状态</li>
+                    <li>容器删除时，CNI 插件清理 Veth 对</li>
+                </ul>
+                <p>如果容器异常终止，可能需要手动清理孤立的 Veth 设备。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>实用脚本和工具</h2>
+            <p>以下是一些实用的脚本和工具，可以简化 Veth 对的创建和管理：</p>
+            
+            <h3>创建 Veth 对并连接到网络命名空间</h3>
+            <div class="code-block">
+#!/bin/bash
+# 创建 Veth 对并连接到网络命名空间的脚本
+# 用法: ./create_veth.sh <namespace> <veth_host> <veth_ns> <ip_host> <ip_ns>
+
+NS=$1
+VETH_HOST=$2
+VETH_NS=$3
+IP_HOST=$4
+IP_NS=$5
+
+# 创建网络命名空间（如果不存在）
+ip netns show | grep -q $NS || ip netns add $NS
+
+# 创建 Veth 对
+ip link add $VETH_HOST type veth peer name $VETH_NS
+
+# 将一端移动到命名空间
+ip link set $VETH_NS netns $NS
+
+# 配置 IP 地址
+ip addr add $IP_HOST/24 dev $VETH_HOST
+ip netns exec $NS ip addr add $IP_NS/24 dev $VETH_NS
+
+# 启用设备
+ip link set $VETH_HOST up
+ip netns exec $NS ip link set $VETH_NS up
+ip netns exec $NS ip link set lo up
+
+echo "Veth 对创建完成:"
+echo "主机端: $VETH_HOST ($IP_HOST)"
+echo "命名空间 $NS 端: $VETH_NS ($IP_NS)"
+            </div>
+            
+            <h3>查找 Veth 对的对端</h3>
+            <div class="code-block">
+#!/bin/bash
+# 查找 Veth 设备对端的脚本
+# 用法: ./find_veth_peer.sh <veth_device>
+
+VETH=$1
+
+if [ -z "$VETH" ]; then
+    echo "请指定 Veth 设备名称"
+    exit 1
+fi
+
+# 获取 Veth 设备的索引
+IDX=$(ip -o link show $VETH | awk -F': ' '{print $1}')
+
+if [ -z "$IDX" ]; then
+    echo "设备 $VETH 不存在"
+    exit 1
+fi
+
+# 查找对端索引
+PEER_IDX=$(ethtool -S $VETH | grep peer_ifindex | awk '{print $2}')
+
+if [ -z "$PEER_IDX" ]; then
+    echo "无法获取 $VETH 的对端索引"
+    exit 1
+fi
+
+# 查找对端设备名称
+PEER_NAME=$(ip -o link | grep "^$PEER_IDX:" | awk -F': ' '{print $2}')
+
+echo "设备 $VETH 的对端是 $PEER_NAME (索引: $PEER_IDX)"
+
+# 检查对端是否在其他命名空间
+for NS in $(ip netns list | awk '{print $1}'); do
+    if ip netns exec $NS ip link show | grep -q "^$PEER_IDX:"; then
+        echo "对端设备位于网络命名空间 $NS 中"
+        exit 0
+    fi
+done
+
+echo "对端设备位于主机网络命名空间中"
+            </div>
+            
+            <h3>Veth 对性能测试</h3>
+            <div class="code-block">
+#!/bin/bash
+# Veth 对性能测试脚本
+# 用法: ./veth_perf_test.sh
+
+# 创建测试环境
+ip netns add ns1
+ip netns add ns2
+
+ip link add veth1 type veth peer name veth2
+ip link set veth1 netns ns1
+ip link set veth2 netns ns2
+
+ip netns exec ns1 ip addr add 192.168.1.1/24 dev veth1
+ip netns exec ns2 ip addr add 192.168.1.2/24 dev veth2
+
+ip netns exec ns1 ip link set veth1 up
+ip netns exec ns1 ip link set lo up
+ip netns exec ns2 ip link set veth2 up
+ip netns exec ns2 ip link set lo up
+
+# 确保已安装 iperf3
+which iperf3 >/dev/null || { echo "请先安装 iperf3"; exit 1; }
+
+# 在 ns2 中启动 iperf3 服务器
+ip netns exec ns2 iperf3 -s &
+SERVER_PID=$!
+
+# 等待服务器启动
+sleep 1
+
+# 在 ns1 中运行 iperf3 客户端
+echo "测试 TCP 性能..."
+ip netns exec ns1 iperf3 -c 192.168.1.2 -t 5
+
+echo "测试 UDP 性能..."
+ip netns exec ns1 iperf3 -c 192.168.1.2 -u -b 10G -t 5
+
+# 清理
+kill $SERVER_PID
+ip netns delete ns1
+ip netns delete ns2
+
+echo "测试完成"
+            </div>
+        </section>
+
+        <section>
+            <h2>常见问题和解决方案</h2>
+            <p>以下是使用 Veth 对时可能遇到的一些常见问题及其解决方案：</p>
+            
+            <div class="experiment-card">
+                <h3>问题：Veth 设备创建后无法通信</h3>
+                <p><strong>可能原因：</strong></p>
+                <ul>
+                    <li>设备未启用（UP）</li>
+                    <li>IP 地址配置错误</li>
+                    <li>路由表配置问题</li>
+                    <li>防火墙规则阻止</li>
+                </ul>
+                <p><strong>解决方案：</strong></p>
+                <div class="code-block">
+# 检查设备状态
+ip link show veth0
+ip link show veth1
+
+# 确保设备已启用
+ip link set veth0 up
+ip link set veth1 up
+
+# 检查 IP 地址配置
+ip addr show veth0
+ip addr show veth1
+
+# 检查路由表
+ip route
+
+# 临时禁用防火墙规则
+sudo iptables -F
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>问题：删除 Veth 设备时报错</h3>
+                <p><strong>可能原因：</strong></p>
+                <ul>
+                    <li>设备正在被使用</li>
+                    <li>设备已被其他进程删除</li>
+                    <li>权限不足</li>
+                </ul>
+                <p><strong>解决方案：</strong></p>
+                <div class="code-block">
+# 检查设备是否存在
+ip link show veth0 2>/dev/null || echo "设备不存在"
+
+# 检查设备是否被使用
+lsof | grep veth0
+
+# 使用 sudo 删除
+sudo ip link delete veth0
+
+# 如果仍然无法删除，尝试重启网络服务
+sudo systemctl restart networking  # Debian/Ubuntu
+sudo systemctl restart network     # CentOS/RHEL
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>问题：Veth 对性能不佳</h3>
+                <p><strong>可能原因：</strong></p>
+                <ul>
+                    <li>MTU 设置不当</li>
+                    <li>队列长度不足</li>
+                    <li>系统资源限制</li>
+                    <li>内核参数配置不当</li>
+                </ul>
+                <p><strong>解决方案：</strong></p>
+                <div class="code-block">
+# 优化 MTU
+sudo ip link set veth0 mtu 9000
+sudo ip link set veth1 mtu 9000
+
+# 增加队列长度
+sudo ip link set veth0 txqueuelen 10000
+sudo ip link set veth1 txqueuelen 10000
+
+# 调整内核参数
+sudo sysctl -w net.core.rmem_max=16777216
+sudo sysctl -w net.core.wmem_max=16777216
+sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
+sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>总结</h2>
+            <p>本文详细介绍了 Veth 对的创建、配置和管理，包括基本操作、高级配置、监控调试以及常见问题的解决方案。掌握这些知识对于理解和管理容器网络至关重要。</p>
+            
+            <p>要深入了解 Veth 对的其他方面，请参考以下页面：</p>
+            <ul>
+                <li><a href="veth-pairs.html">Veth 对概述</a> - 了解 Veth 对的基本概念和工作原理</li>
+                <li><a href="veth-namespaces.html">Veth 对与网络命名空间</a> - 探讨 Veth 对如何连接不同的网络命名空间</li>
+                <li><a href="veth-bridges.html">Veth 对与网桥</a> - 介绍 Veth 对与网桥的结合使用</li>
+                <li><a href="veth-kubernetes.html">Veth 对在 Kubernetes 中的应用</a> - 分析 Veth 对在 Kubernetes 网络中的角色</li>
+                <li><a href="veth-troubleshooting.html">Veth 对故障排除</a> - 常见问题和故障排除方法</li>
+            </ul>
+            
+            <div class="experiment-card">
+                <h3>进一步学习</h3>
+                <p>如果你想深入了解 Linux 网络虚拟化和容器网络，以下资源可能对你有帮助：</p>
+                <ul>
+                    <li><a href="network-namespaces.html">网络命名空间</a> - 了解网络命名空间的概念和操作</li>
+                    <li><a href="network-bridges.html">网络桥接</a> - 深入探讨 Linux 网桥的工作原理和应用</li>
+                    <li><a href="pod-to-pod-networking.html">Pod 间通信</a> - 了解 Kubernetes 中 Pod 间的通信机制</li>
+                    <li><a href="cni.html">CNI 插件</a> - 探索 Kubernetes 容器网络接口及其实现</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <a href="veth-namespaces.html" class="button">继续阅读：Veth 对与网络命名空间</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

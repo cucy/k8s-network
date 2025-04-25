@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="500" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="800" height="500" fill="#f8f9fa" />
+  
+  <!-- 节点1 -->
+  <rect x="50" y="80" width="300" height="340" rx="10" fill="#e6f7ff" stroke="#1890ff" stroke-width="2" />
+  <text x="200" y="110" font-family="Arial" font-size="18" text-anchor="middle" fill="#0050b3">节点1 (192.168.1.10)</text>
+  
+  <!-- 节点1上的Pod -->
+  <rect x="80" y="130" width="120" height="80" rx="5" fill="#d9f7be" stroke="#52c41a" stroke-width="2" />
+  <text x="140" y="160" font-family="Arial" font-size="16" text-anchor="middle" fill="#135200">Pod A</text>
+  <text x="140" y="185" font-family="Arial" font-size="14" text-anchor="middle" fill="#135200">10.244.1.2</text>
+  
+  <rect x="80" y="230" width="120" height="80" rx="5" fill="#d9f7be" stroke="#52c41a" stroke-width="2" />
+  <text x="140" y="260" font-family="Arial" font-size="16" text-anchor="middle" fill="#135200">Pod B</text>
+  <text x="140" y="285" font-family="Arial" font-size="14" text-anchor="middle" fill="#135200">10.244.1.3</text>
+  
+  <!-- 节点1上的VXLAN接口 -->
+  <rect x="80" y="330" width="240" height="60" rx="5" fill="#fff1f0" stroke="#ff4d4f" stroke-width="2" />
+  <text x="200" y="365" font-family="Arial" font-size="16" text-anchor="middle" fill="#820014">flannel.1 (VTEP)</text>
+  <text x="200" y="385" font-family="Arial" font-size="14" text-anchor="middle" fill="#820014">10.244.1.0</text>
+  
+  <!-- 节点2 -->
+  <rect x="450" y="80" width="300" height="340" rx="10" fill="#e6f7ff" stroke="#1890ff" stroke-width="2" />
+  <text x="600" y="110" font-family="Arial" font-size="18" text-anchor="middle" fill="#0050b3">节点2 (192.168.1.11)</text>
+  
+  <!-- 节点2上的Pod -->
+  <rect x="600" y="130" width="120" height="80" rx="5" fill="#d9f7be" stroke="#52c41a" stroke-width="2" />
+  <text x="660" y="160" font-family="Arial" font-size="16" text-anchor="middle" fill="#135200">Pod C</text>
+  <text x="660" y="185" font-family="Arial" font-size="14" text-anchor="middle" fill="#135200">10.244.2.2</text>
+  
+  <rect x="600" y="230" width="120" height="80" rx="5" fill="#d9f7be" stroke="#52c41a" stroke-width="2" />
+  <text x="660" y="260" font-family="Arial" font-size="16" text-anchor="middle" fill="#135200">Pod D</text>
+  <text x="660" y="285" font-family="Arial" font-size="14" text-anchor="middle" fill="#135200">10.244.2.3</text>
+  
+  <!-- 节点2上的VXLAN接口 -->
+  <rect x="480" y="330" width="240" height="60" rx="5" fill="#fff1f0" stroke="#ff4d4f" stroke-width="2" />
+  <text x="600" y="365" font-family="Arial" font-size="16" text-anchor="middle" fill="#820014">flannel.1 (VTEP)</text>
+  <text x="600" y="385" font-family="Arial" font-size="14" text-anchor="middle" fill="#820014">10.244.2.0</text>
+  
+  <!-- 物理网络 -->
+  <rect x="50" y="440" width="700" height="40" rx="5" fill="#f0f5ff" stroke="#2f54eb" stroke-width="2" />
+  <text x="400" y="465" font-family="Arial" font-size="16" text-anchor="middle" fill="#10239e">物理网络 (192.168.1.0/24)</text>
+  
+  <!-- 连接线 -->
+  <!-- Pod A 到 flannel.1 -->
+  <line x1="140" y1="210" x2="140" y2="330" stroke="#52c41a" stroke-width="2" stroke-dasharray="5,5" />
+  <!-- Pod B 到 flannel.1 -->
+  <line x1="140" y1="310" x2="140" y2="330" stroke="#52c41a" stroke-width="2" stroke-dasharray="5,5" />
+  
+  <!-- Pod C 到 flannel.1 -->
+  <line x1="660" y1="210" x2="660" y2="330" stroke="#52c41a" stroke-width="2" stroke-dasharray="5,5" />
+  <!-- Pod D 到 flannel.1 -->
+  <line x1="660" y1="310" x2="660" y2="330" stroke="#52c41a" stroke-width="2" stroke-dasharray="5,5" />
+  
+  <!-- flannel.1 到物理网络 -->
+  <line x1="200" y1="390" x2="200" y2="440" stroke="#ff4d4f" stroke-width="2" />
+  <line x1="600" y1="390" x2="600" y2="440" stroke="#ff4d4f" stroke-width="2" />
+  
+  <!-- VXLAN隧道 -->
+  <path d="M 200 420 C 200 410, 600 410, 600 420" stroke="#fa8c16" stroke-width="3" fill="none" />
+  <text x="400" y="405" font-family="Arial" font-size="14" text-anchor="middle" fill="#873800">VXLAN隧道 (UDP/4789)</text>
+  
+  <!-- 数据包 -->
+  <g transform="translate(300, 400)">
+    <rect x="-40" y="-25" width="80" height="50" rx="5" fill="#fff0f6" stroke="#eb2f96" stroke-width="2" />
+    <text x="0" y="0" font-family="Arial" font-size="12" text-anchor="middle" fill="#c41d7f">VXLAN数据包</text>
+    <text x="0" y="15" font-family="Arial" font-size="10" text-anchor="middle" fill="#c41d7f">外部IP + UDP + VXLAN</text>
+  </g>
+  
+  <!-- 图例 -->
+  <rect x="50" y="20" width="15" height="15" fill="#d9f7be" stroke="#52c41a" stroke-width="2" />
+  <text x="75" y="33" font-family="Arial" font-size="14" fill="#000">Pod</text>
+  
+  <rect x="150" y="20" width="15" height="15" fill="#fff1f0" stroke="#ff4d4f" stroke-width="2" />
+  <text x="175" y="33" font-family="Arial" font-size="14" fill="#000">VXLAN接口</text>
+  
+  <rect x="280" y="20" width="15" height="15" fill="#f0f5ff" stroke="#2f54eb" stroke-width="2" />
+  <text x="305" y="33" font-family="Arial" font-size="14" fill="#000">物理网络</text>
+  
+  <line x1="400" y1="20" x2="430" y2="20" stroke="#fa8c16" stroke-width="3" />
+  <text x="450" y="25" font-family="Arial" font-size="14" fill="#000">VXLAN隧道</text>
+</svg>

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对多路径静态路由 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对多路径静态路由</h2>
+            <p>多路径路由允许数据包通过多个路径到达同一目标。在 Linux 网络命名空间和 Veth 对的环境中，多路径路由可以实现负载均衡、提高网络吞吐量、提供冗余路径等功能。本页将详细介绍 Veth 对环境中的多路径静态路由配置技术。</p>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces-basics.html">Veth 对与网络命名空间基础</a></li>
+                    <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                    <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                    <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                    <li><a href="veth-routing-static-basic.html">基本静态路由</a></li>
+                    <li><a href="veth-routing-static-advanced.html">高级静态路由</a></li>
+                    <li><a href="veth-routing-static-multipath.html" class="active">多路径静态路由</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>多路径路由基础</h2>
+            <p>多路径路由是一种允许数据包通过多个路径到达同一目标的路由技术。在 Linux 中，多路径路由通常通过 ECMP（Equal-Cost Multi-Path）实现，它允许内核在多个等价路径之间分配流量。</p>
+            
+            <h3>多路径路由的优点</h3>
+            <ul>
+                <li><strong>负载均衡</strong>：将流量分散到多个路径，避免单个路径过载</li>
+                <li><strong>提高吞吐量</strong>：通过使用多个路径，提高整体网络吞吐量</li>
+                <li><strong>冗余路径</strong>：提供备用路径，提高网络可靠性</li>
+                <li><strong>故障转移</strong>：当一个路径故障时，可以自动切换到其他路径</li>
+            </ul>
+            
+            <h3>多路径路由的实现方式</h3>
+            <p>在 Linux 中，多路径路由可以通过以下方式实现：</p>
+            <ul>
+                <li><strong>等价多路径（ECMP）</strong>：内核在多个等价路径之间分配流量</li>
+                <li><strong>策略路由</strong>：根据源地址、目标地址、服务类型等条件选择不同的路径</li>
+                <li><strong>负载均衡器</strong>：使用专门的负载均衡器（如 LVS、HAProxy）分配流量</li>
+                <li><strong>动态路由协议</strong>：使用支持多路径的动态路由协议（如 OSPF、BGP）</li>
+            </ul>
+            
+            <p>本页将主要介绍等价多路径（ECMP）的配置方法。</p>
+        </section>
+
+        <section>
+            <h2>等价多路径（ECMP）</h2>
+            <p>等价多路径（Equal-Cost Multi-Path，ECMP）是一种路由策略，它允许内核在多个等价路径之间分配流量。在 Linux 中，ECMP 通过内核的多路径路由功能实现。</p>
+            
+            <h3>ECMP 的工作原理</h3>
+            <p>当内核发现多个等价路径（即目标网络、度量值相同的路径）时，它会创建一个多路径路由条目。当需要发送数据包时，内核会根据特定的散列算法选择一条路径。散列算法通常基于数据包的源 IP、目标 IP、源端口、目标端口等信息，确保同一流的数据包使用相同的路径，避免乱序。</p>
+            
+            <h3>ECMP 的配置方法</h3>
+            <p>在 Linux 中，可以使用 ip 命令配置 ECMP 路由。有两种方法：</p>
+            <ol>
+                <li>添加多个目标网络和度量值相同的路由</li>
+                <li>使用 nexthop 对象显式配置多路径路由</li>
+            </ol>
+            
+            <h4>方法 1：添加多个路由</h4>
+            <div class="code-block">
+# 添加多个等价路由
+ip route add 192.168.2.0/24 via 192.168.1.1
+ip route add 192.168.2.0/24 via 192.168.1.2
+</div>
+            
+            <h4>方法 2：使用 nexthop 对象</h4>
+            <div class="code-block">
+# 创建 nexthop 组
+ip nexthop add id 1 via 192.168.1.1
+ip nexthop add id 2 via 192.168.1.2
+ip nexthop add id 3 group 1/2
+
+# 添加使用 nexthop 组的路由
+ip route add 192.168.2.0/24 nhid 3
+</div>
+            
+            <h3>ECMP 的负载均衡策略</h3>
+            <p>Linux 内核支持多种 ECMP 负载均衡策略，可以通过 sysctl 配置：</p>
+            <div class="code-block">
+# 查看当前的负载均衡策略
+sysctl net.ipv4.fib_multipath_hash_policy
+
+# 设置负载均衡策略
+# 0: 基于源 IP 和目标 IP
+# 1: 基于源 IP、目标 IP、源端口、目标端口和协议
+sysctl -w net.ipv4.fib_multipath_hash_policy=1
+</div>
+        </section>
+
+        <section>
+            <h2>基本多路径路由实验</h2>
+            <p>在这个实验中，我们将创建一个简单的拓扑，其中 ns1 有两条到达 ns3 的路径，一条通过 ns2-1，另一条通过 ns2-2。我们将配置 ECMP 路由，使流量在这两条路径之间分配。</p>
+            
+            <h3>实验拓扑</h3>
+            <p>实验拓扑如下：</p>
+            <ul>
+                <li>ns1：10.0.1.1/24 和 10.0.2.1/24，连接到 ns2-1 和 ns2-2</li>
+                <li>ns2-1：10.0.1.2/24 和 10.0.3.1/24，连接到 ns1 和 ns3</li>
+                <li>ns2-2：10.0.2.2/24 和 10.0.4.1/24，连接到 ns1 和 ns3</li>
+                <li>ns3：10.0.3.2/24 和 10.0.4.2/24，连接到 ns2-1 和 ns2-2</li>
+            </ul>
+            
+            <h3>实验步骤</h3>
+            <div class="code-block">
+# 步骤 1：创建四个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2-1
+sudo ip netns add ns2-2
+sudo ip netns add ns3
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <div class="code-block">
+# 步骤 2：创建四对 Veth 设备
+# ns1 和 ns2-1 之间的 Veth 对
+sudo ip link add veth1-1 type veth peer name veth1-2
+
+# ns1 和 ns2-2 之间的 Veth 对
+sudo ip link add veth2-1 type veth peer name veth2-2
+
+# ns2-1 和 ns3 之间的 Veth 对
+sudo ip link add veth3-1 type veth peer name veth3-2
+
+# ns2-2 和 ns3 之间的 Veth 对
+sudo ip link add veth4-1 type veth peer name veth4-2
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <div class="code-block">
+# 步骤 3：将 Veth 设备分配到相应的网络命名空间
+# ns1 的设备
+sudo ip link set veth1-1 netns ns1
+sudo ip link set veth2-1 netns ns1
+
+# ns2-1 的设备
+sudo ip link set veth1-2 netns ns2-1
+sudo ip link set veth3-1 netns ns2-1
+
+# ns2-2 的设备
+sudo ip link set veth2-2 netns ns2-2
+sudo ip link set veth4-1 netns ns2-2
+
+# ns3 的设备
+sudo ip link set veth3-2 netns ns3
+sudo ip link set veth4-2 netns ns3
+
+# 验证分配结果
+sudo ip netns exec ns1 ip link show
+sudo ip netns exec ns2-1 ip link show
+sudo ip netns exec ns2-2 ip link show
+sudo ip netns exec ns3 ip link show
+</div>
+            
+            <div class="code-block">
+# 步骤 4：配置 IP 地址
+# ns1 的设备
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1-1
+sudo ip netns exec ns1 ip addr add 10.0.2.1/24 dev veth2-1
+sudo ip netns exec ns1 ip link set veth1-1 up
+sudo ip netns exec ns1 ip link set veth2-1 up
+sudo ip netns exec ns1 ip link set lo up
+
+# ns2-1 的设备
+sudo ip netns exec ns2-1 ip addr add 10.0.1.2/24 dev veth1-2
+sudo ip netns exec ns2-1 ip addr add 10.0.3.1/24 dev veth3-1
+sudo ip netns exec ns2-1 ip link set veth1-2 up
+sudo ip netns exec ns2-1 ip link set veth3-1 up
+sudo ip netns exec ns2-1 ip link set lo up
+
+# ns2-2 的设备
+sudo ip netns exec ns2-2 ip addr add 10.0.2.2/24 dev veth2-2
+sudo ip netns exec ns2-2 ip addr add 10.0.4.1/24 dev veth4-1
+sudo ip netns exec ns2-2 ip link set veth2-2 up
+sudo ip netns exec ns2-2 ip link set veth4-1 up
+sudo ip netns exec ns2-2 ip link set lo up
+
+# ns3 的设备
+sudo ip netns exec ns3 ip addr add 10.0.3.2/24 dev veth3-2
+sudo ip netns exec ns3 ip addr add 10.0.4.2/24 dev veth4-2
+sudo ip netns exec ns3 ip link set veth3-2 up
+sudo ip netns exec ns3 ip link set veth4-2 up
+sudo ip netns exec ns3 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2-1 ip addr
+sudo ip netns exec ns2-2 ip addr
+sudo ip netns exec ns3 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 5：启用 IP 转发
+sudo ip netns exec ns2-1 sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec ns2-2 sysctl -w net.ipv4.ip_forward=1
+
+# 验证 IP 转发是否启用
+sudo ip netns exec ns2-1 sysctl net.ipv4.ip_forward
+sudo ip netns exec ns2-2 sysctl net.ipv4.ip_forward
+</div>
+            
+            <div class="code-block">
+# 步骤 6：配置多路径路由（方法 1：添加多个路由）
+# ns1 的路由
+sudo ip netns exec ns1 ip route add 10.0.3.0/24 via 10.0.1.2
+sudo ip netns exec ns1 ip route add 10.0.4.0/24 via 10.0.2.2
+sudo ip netns exec ns1 ip route add 10.0.5.0/24 via 10.0.1.2
+sudo ip netns exec ns1 ip route add 10.0.5.0/24 via 10.0.2.2
+
+# ns3 的路由
+sudo ip netns exec ns3 ip route add 10.0.1.0/24 via 10.0.3.1
+sudo ip netns exec ns3 ip route add 10.0.2.0/24 via 10.0.4.1
+sudo ip netns exec ns3 ip route add 10.0.5.0/24 via 10.0.3.1
+sudo ip netns exec ns3 ip route add 10.0.5.0/24 via 10.0.4.1
+
+# ns2-1 的路由
+sudo ip netns exec ns2-1 ip route add 10.0.2.0/24 via 10.0.1.1
+sudo ip netns exec ns2-1 ip route add 10.0.4.0/24 via 10.0.3.2
+sudo ip netns exec ns2-1 ip route add 10.0.5.0/24 via 10.0.3.2
+
+# ns2-2 的路由
+sudo ip netns exec ns2-2 ip route add 10.0.1.0/24 via 10.0.2.1
+sudo ip netns exec ns2-2 ip route add 10.0.3.0/24 via 10.0.4.2
+sudo ip netns exec ns2-2 ip route add 10.0.5.0/24 via 10.0.4.2
+
+# 验证路由配置
+sudo ip netns exec ns1 ip route
+sudo ip netns exec ns2-1 ip route
+sudo ip netns exec ns2-2 ip route
+sudo ip netns exec ns3 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 7：测试连通性
+# 从 ns1 到 ns3
+sudo ip netns exec ns1 ping -c 3 10.0.3.2
+sudo ip netns exec ns1 ping -c 3 10.0.4.2
+
+# 从 ns3 到 ns1
+sudo ip netns exec ns3 ping -c 3 10.0.1.1
+sudo ip netns exec ns3 ping -c 3 10.0.2.1
+</div>
+            
+            <div class="code-block">
+# 步骤 8：测试多路径路由
+# 安装 traceroute（如果尚未安装）
+sudo apt-get update
+sudo apt-get install -y traceroute
+
+# 从 ns1 到 ns3 的虚拟 IP 10.0.5.1（假设在 ns3 上配置）
+sudo ip netns exec ns3 ip addr add 10.0.5.1/24 dev lo
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+</div>
+            
+            <div class="code-block">
+# 步骤 9：配置多路径路由（方法 2：使用 nexthop 对象）
+# 删除之前的路由
+sudo ip netns exec ns1 ip route del 10.0.5.0/24 via 10.0.1.2
+sudo ip netns exec ns1 ip route del 10.0.5.0/24 via 10.0.2.2
+
+# 创建 nexthop 对象
+sudo ip netns exec ns1 ip nexthop add id 1 via 10.0.1.2
+sudo ip netns exec ns1 ip nexthop add id 2 via 10.0.2.2
+sudo ip netns exec ns1 ip nexthop add id 3 group 1/2
+
+# 添加使用 nexthop 组的路由
+sudo ip netns exec ns1 ip route add 10.0.5.0/24 nhid 3
+
+# 验证配置
+sudo ip netns exec ns1 ip nexthop show
+sudo ip netns exec ns1 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 10：测试 nexthop 路由
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+</div>
+            
+            <div class="code-block">
+# 步骤 11：配置负载均衡策略
+# 查看当前的负载均衡策略
+sudo ip netns exec ns1 sysctl net.ipv4.fib_multipath_hash_policy
+
+# 设置负载均衡策略
+sudo ip netns exec ns1 sysctl -w net.ipv4.fib_multipath_hash_policy=1
+
+# 测试新的负载均衡策略
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+sudo ip netns exec ns1 traceroute 10.0.5.1
+</div>
+            
+            <div class="code-block">
+# 步骤 12：清理实验环境
+sudo ip netns delete ns1
+sudo ip netns delete ns2-1
+sudo ip netns delete ns2-2
+sudo ip netns delete ns3
+
+# 验证清理结果
+ip netns list
+</div>
+            
+            <p>在这个实验中，我们配置了多路径路由，使 ns1 和 ns3 之间的流量可以通过两条路径传输。我们使用了两种方法配置多路径路由：添加多个路由和使用 nexthop 对象。我们还测试了不同的负载均衡策略，观察流量分配情况。</p>
+        </section>
+
+        <section>
+            <h2>多路径路由的高级配置</h2>
+            <p>除了基本的多路径路由配置，Linux 还支持一些高级配置选项，如权重、故障检测等。</p>
+            
+            <h3>带权重的多路径路由</h3>
+            <p>在 nexthop 组中，可以为每个 nexthop 分配不同的权重，控制流量分配比例。</p>
+            <div class="code-block">
+# 创建带权重的 nexthop 组
+ip nexthop add id 1 via 192.168.1.1
+ip nexthop add id 2 via 192.168.1.2
+ip nexthop add id 3 group 1/2 weight 2/1
+
+# 添加使用 nexthop 组的路由
+ip route add 192.168.2.0/24 nhid 3
+</div>
+            
+            <p>在这个例子中，流量将按照 2:1 的比例分配到 192.168.1.1 和 192.168.1.2。</p>
+            
+            <h3>多路径路由的故障检测</h3>
+            <p>Linux 内核会自动检测 nexthop 的可达性。如果一个 nexthop 不可达，内核会自动将其从多路径路由中移除，直到它再次可达。</p>
+            
+            <p>可以使用 ip nexthop 命令查看 nexthop 的状态：</p>
+            <div class="code-block">
+# 查看 nexthop 状态
+ip nexthop show
+</div>
+            
+            <p>输出中的 "used" 字段表示该 nexthop 是否正在使用。如果一个 nexthop 不可达，它的 "used" 字段将为 0。</p>
+            
+            <h3>多路径路由的性能优化</h3>
+            <p>为了提高多路径路由的性能，可以考虑以下优化措施：</p>
+            <ul>
+                <li><strong>增加缓冲区大小</strong>：增加网络接口的接收和发送缓冲区大小，减少丢包</li>
+                <li><strong>调整 TCP 参数</strong>：优化 TCP 拥塞控制算法，提高吞吐量</li>
+                <li><strong>使用硬件卸载</strong>：如果网卡支持，启用 TSO（TCP Segmentation Offload）、GSO（Generic Segmentation Offload）等硬件卸载功能</li>
+                <li><strong>调整中断亲和性</strong>：将网络中断绑定到特定的 CPU 核心，减少 CPU 缓存失效</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>多路径路由在 Kubernetes 中的应用</h2>
+            <p>在 Kubernetes 中，多路径路由有多种应用场景：</p>
+            
+            <h3>Pod 网络</h3>
+            <p>在 Kubernetes 的 Pod 网络中，多路径路由可以用于提高网络性能和可靠性。例如，在使用 Calico 网络插件时，可以配置 BGP 多路径，使 Pod 流量通过多条路径传输。</p>
+            
+            <h3>Service 负载均衡</h3>
+            <p>Kubernetes Service 的负载均衡可以利用多路径路由实现。例如，在使用 kube-proxy 的 IPVS 模式时，可以配置多路径路由，将 Service 流量分配到多个后端 Pod。</p>
+            
+            <h3>外部流量负载均衡</h3>
+            <p>在 Kubernetes 集群的入口和出口流量中，多路径路由可以用于负载均衡和冗余。例如，可以配置多个外部负载均衡器，通过多路径路由将流量分配到它们。</p>
+            
+            <h3>多集群连接</h3>
+            <p>在多集群 Kubernetes 环境中，多路径路由可以用于连接不同的集群。例如，可以配置多条路径连接两个集群，提高跨集群通信的性能和可靠性。</p>
+        </section>
+
+        <section>
+            <h2>多路径路由的最佳实践</h2>
+            <p>在配置多路径路由时，以下是一些最佳实践：</p>
+            
+            <h3>路径选择</h3>
+            <p>选择性能和可靠性相近的路径作为多路径路由的候选。如果路径之间的性能差异太大，可能导致流量分配不均，甚至影响应用性能。</p>
+            
+            <h3>负载均衡策略</h3>
+            <p>根据流量特点选择合适的负载均衡策略。对于长连接（如 TCP 连接），应该使用基于流的负载均衡策略，确保同一流的数据包使用相同的路径。</p>
+            
+            <h3>监控和故障检测</h3>
+            <p>定期监控多路径路由的状态和性能，及时发现和处理故障。可以使用 ip nexthop show 命令查看 nexthop 状态，使用 netstat、iptraf 等工具监控流量分配情况。</p>
+            
+            <h3>逐步部署</h3>
+            <p>在生产环境中部署多路径路由时，应该采用逐步部署的策略，先在测试环境验证，然后在生产环境的一小部分流量上测试，最后全面部署。</p>
+            
+            <h3>文档和自动化</h3>
+            <p>记录多路径路由的配置和变更，使用脚本或配置管理工具自动化配置过程，减少手动配置的错误。</p>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <ul>
+                <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                <li><a href="veth-routing-static-basic.html">基本静态路由</a></li>
+                <li><a href="veth-routing-static-advanced.html">高级静态路由</a></li>
+                <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+            </ul>
+            <div class="navigation-buttons">
+                <a href="veth-routing-static-advanced.html" class="button">上一页：高级静态路由</a>
+                <a href="veth-routing-dynamic.html" class="button">下一页：动态路由配置</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

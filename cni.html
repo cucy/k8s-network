@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes CNI 插件 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html" class="active">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>CNI (容器网络接口) 插件原理</h2>
+            <p>CNI（Container Network Interface）是一个规范和一组库，用于配置 Linux 容器的网络接口。在 Kubernetes 中，CNI 插件负责为 Pod 分配 IP 地址并设置必要的路由，使 Pod 能够相互通信。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/cni-network.svg" class="diagram">
+                    CNI 网络示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>CNI 的作用</h2>
+            <p>在 Kubernetes 中，CNI 插件扮演着关键角色：</p>
+            <ul>
+                <li>为 Pod 分配和配置网络接口</li>
+                <li>为 Pod 分配 IP 地址</li>
+                <li>设置必要的路由规则，使 Pod 能够相互通信</li>
+                <li>实现 Kubernetes 网络模型的四个基本原则</li>
+                <li>提供网络策略（Network Policy）的实现</li>
+            </ul>
+            <p>Kubernetes 本身不提供容器网络功能，而是依赖 CNI 插件来实现。这种插件化的设计使得用户可以根据自己的需求选择合适的网络解决方案。</p>
+        </section>
+
+        <section>
+            <h2>CNI 工作原理</h2>
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">CNI 规范</div>
+                    <div class="tab">CNI 插件类型</div>
+                    <div class="tab">CNI 工作流程</div>
+                    <div class="tab">IPAM</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>CNI 规范</h3>
+                        <p>CNI 规范定义了容器运行时（如 kubelet）和网络插件之间的接口。规范主要包括：</p>
+                        <ul>
+                            <li>网络配置格式</li>
+                            <li>容器运行时如何调用网络插件</li>
+                            <li>网络插件如何配置网络接口</li>
+                            <li>如何为容器分配 IP 地址</li>
+                        </ul>
+                        
+                        <p>CNI 规范定义了以下主要操作：</p>
+                        <ul>
+                            <li><strong>ADD</strong>：创建容器时，为容器添加网络接口</li>
+                            <li><strong>DEL</strong>：删除容器时，清理网络接口</li>
+                            <li><strong>CHECK</strong>：检查容器网络配置是否正确</li>
+                            <li><strong>VERSION</strong>：返回插件支持的 CNI 规范版本</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# CNI 配置示例 (10-calico.conflist)
+{
+  "name": "k8s-pod-network",
+  "cniVersion": "0.3.1",
+  "plugins": [
+    {
+      "type": "calico",
+      "log_level": "info",
+      "datastore_type": "kubernetes",
+      "nodename": "__KUBERNETES_NODE_NAME__",
+      "ipam": {
+        "type": "calico-ipam"
+      },
+      "policy": {
+        "type": "k8s"
+      },
+      "kubernetes": {
+        "kubeconfig": "__KUBECONFIG_FILEPATH__"
+      }
+    },
+    {
+      "type": "portmap",
+      "snat": true,
+      "capabilities": {"portMappings": true}
+    }
+  ]
+}
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>CNI 插件类型</h3>
+                        <p>CNI 插件可以分为以下几类：</p>
+                        
+                        <h4>主要网络插件</h4>
+                        <p>负责创建和配置容器网络接口的插件，如：</p>
+                        <ul>
+                            <li><strong>bridge</strong>：创建 Linux 网桥，并将容器连接到网桥</li>
+                            <li><strong>macvlan</strong>：基于物理网卡创建虚拟网卡，直接连接到物理网络</li>
+                            <li><strong>ipvlan</strong>：类似于 macvlan，但共享 MAC 地址</li>
+                            <li><strong>ptp</strong>：创建 veth 对，一端连接到容器，另一端连接到主机</li>
+                            <li><strong>host-device</strong>：将主机上的网络设备直接移动到容器命名空间</li>
+                        </ul>
+                        
+                        <h4>IPAM 插件</h4>
+                        <p>负责 IP 地址分配和管理的插件，如：</p>
+                        <ul>
+                            <li><strong>host-local</strong>：从预定义的地址范围中分配 IP 地址，并将分配信息存储在本地文件系统中</li>
+                            <li><strong>dhcp</strong>：使用 DHCP 协议为容器分配 IP 地址</li>
+                            <li><strong>static</strong>：为容器分配静态 IP 地址</li>
+                        </ul>
+                        
+                        <h4>Meta 插件</h4>
+                        <p>提供额外功能的插件，如：</p>
+                        <ul>
+                            <li><strong>flannel</strong>：读取 flannel 配置，并将其转换为 bridge 插件配置</li>
+                            <li><strong>tuning</strong>：调整网络接口参数，如 MTU 或 TCP 选项</li>
+                            <li><strong>portmap</strong>：实现端口映射功能</li>
+                            <li><strong>bandwidth</strong>：限制容器的带宽</li>
+                            <li><strong>firewall</strong>：配置 iptables 规则</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>CNI 工作流程</h3>
+                        <p>在 Kubernetes 中，CNI 插件的工作流程如下：</p>
+                        <ol>
+                            <li>当 kubelet 创建 Pod 时，它首先创建一个网络命名空间</li>
+                            <li>kubelet 通过 CRI（容器运行时接口）调用容器运行时（如 containerd 或 Docker）</li>
+                            <li>容器运行时创建容器，但不配置网络</li>
+                            <li>kubelet 调用 CNI 插件，传递容器 ID、网络命名空间路径和网络配置</li>
+                            <li>CNI 插件执行以下操作：
+                                <ul>
+                                    <li>创建 veth 对，一端连接到容器命名空间，另一端连接到主机</li>
+                                    <li>调用 IPAM 插件为容器分配 IP 地址</li>
+                                    <li>设置路由和 iptables 规则</li>
+                                    <li>返回分配的 IP 地址和其他网络信息给 kubelet</li>
+                                </ul>
+                            </li>
+                            <li>kubelet 将网络信息更新到 Pod 状态</li>
+                        </ol>
+                        
+                        <p>当 Pod 被删除时，过程相反：</p>
+                        <ol>
+                            <li>kubelet 调用 CNI 插件的 DEL 命令</li>
+                            <li>CNI 插件清理网络资源，包括释放 IP 地址、删除路由和 iptables 规则</li>
+                            <li>容器运行时删除容器</li>
+                            <li>kubelet 删除网络命名空间</li>
+                        </ol>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>IPAM (IP 地址管理)</h3>
+                        <p>IPAM（IP Address Management）是 CNI 的一个重要组成部分，负责为容器分配和管理 IP 地址。</p>
+                        
+                        <h4>IPAM 的主要职责：</h4>
+                        <ul>
+                            <li>为容器分配 IP 地址</li>
+                            <li>管理 IP 地址池</li>
+                            <li>防止 IP 地址冲突</li>
+                            <li>在容器删除时回收 IP 地址</li>
+                        </ul>
+                        
+                        <h4>常见的 IPAM 实现：</h4>
+                        <ul>
+                            <li><strong>host-local</strong>：在本地文件系统中维护 IP 地址分配状态</li>
+                            <li><strong>dhcp</strong>：使用 DHCP 协议分配 IP 地址</li>
+                            <li><strong>calico-ipam</strong>：Calico 的 IPAM 实现，支持分布式 IP 地址管理</li>
+                            <li><strong>whereabouts</strong>：支持跨多个节点的 IP 地址管理</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# host-local IPAM 配置示例
+{
+  "ipam": {
+    "type": "host-local",
+    "subnet": "10.244.0.0/24",
+    "routes": [
+      { "dst": "0.0.0.0/0" }
+    ]
+  }
+}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>常见 CNI 插件</h2>
+            
+            <div class="interactive">
+                <h3>Calico</h3>
+                <p>Calico 是一个流行的 CNI 插件，提供高性能、可扩展的网络解决方案。</p>
+                
+                <h4>主要特点：</h4>
+                <ul>
+                    <li>使用 BGP（边界网关协议）进行路由信息交换</li>
+                    <li>支持网络策略，提供细粒度的访问控制</li>
+                    <li>可以在不使用 Overlay 网络的情况下工作，减少网络开销</li>
+                    <li>支持 IPv4 和 IPv6</li>
+                    <li>集成了 IPAM 功能</li>
+                </ul>
+                
+                <h4>工作原理：</h4>
+                <ol>
+                    <li>为每个节点分配一个 CIDR 块</li>
+                    <li>使用 BGP 在节点间交换路由信息</li>
+                    <li>在节点上创建路由表，使得 Pod 可以直接通信</li>
+                    <li>使用 iptables 或 eBPF 实现网络策略</li>
+                </ol>
+                
+                <h3>Flannel</h3>
+                <p>Flannel 是一个简单易用的 CNI 插件，专注于提供 Overlay 网络。</p>
+                
+                <h4>主要特点：</h4>
+                <ul>
+                    <li>配置简单，易于部署</li>
+                    <li>支持多种后端，如 VXLAN、host-gw、UDP</li>
+                    <li>不支持网络策略（需要与 Calico 集成为 Canal）</li>
+                    <li>适合小型到中型集群</li>
+                </ul>
+                
+                <h4>工作原理：</h4>
+                <ol>
+                    <li>为每个节点分配一个子网</li>
+                    <li>使用 etcd 或 Kubernetes API 存储子网分配信息</li>
+                    <li>使用 VXLAN 等技术在节点间创建 Overlay 网络</li>
+                    <li>在每个节点上创建路由表，将 Pod 流量路由到正确的节点</li>
+                </ol>
+                
+                <h3>Weave Net</h3>
+                <p>Weave Net 是一个功能丰富的 CNI 插件，提供简单的部署和强大的功能。</p>
+                
+                <h4>主要特点：</h4>
+                <ul>
+                    <li>不依赖外部数据存储</li>
+                    <li>支持加密通信</li>
+                    <li>提供网络策略支持</li>
+                    <li>支持多播</li>
+                    <li>内置 DNS 解析</li>
+                </ul>
+                
+                <h4>工作原理：</h4>
+                <ol>
+                    <li>在节点间建立 TCP 连接，形成网状拓扑</li>
+                    <li>使用 VXLAN 或 fast datapath 在节点间传输数据</li>
+                    <li>使用 gossip 协议同步路由信息</li>
+                    <li>为每个 Pod 分配全局唯一的 IP 地址</li>
+                </ol>
+                
+                <h3>Cilium</h3>
+                <p>Cilium 是一个基于 eBPF 的 CNI 插件，提供高性能的网络和安全功能。</p>
+                
+                <h4>主要特点：</h4>
+                <ul>
+                    <li>使用 eBPF 技术，性能优异</li>
+                    <li>支持 L3-L7 层的网络策略</li>
+                    <li>提供丰富的监控和可观察性功能</li>
+                    <li>支持透明加密</li>
+                    <li>支持 Kubernetes 服务的负载均衡</li>
+                </ul>
+                
+                <h4>工作原理：</h4>
+                <ol>
+                    <li>使用 eBPF 程序在内核中处理网络数据包</li>
+                    <li>基于身份而非 IP 地址进行安全策略控制</li>
+                    <li>使用 BPF 映射存储策略和状态信息</li>
+                    <li>支持多种数据路径，如直接路由、VXLAN 或 Geneve</li>
+                </ol>
+            </div>
+        </section>
+
+        <section>
+            <h2>CNI 插件对比</h2>
+            <div class="experiment-card">
+                <h3>主要 CNI 插件特性对比</h3>
+                <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                    <thead>
+                        <tr style="background-color: #f0f0f0;">
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">特性</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Calico</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Flannel</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Weave Net</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Cilium</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">网络模型</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">BGP / VXLAN</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">VXLAN / host-gw</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">VXLAN / fast datapath</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">eBPF / VXLAN / Geneve</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">网络策略</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✗</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓ (L3-L7)</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">加密</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">IPsec (可选)</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✗</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">性能</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">高 (BGP 模式)</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">中</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">中</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">高 (eBPF)</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">可观察性</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">中</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">低</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">中</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">高</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">部署复杂度</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">中</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">低</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">低</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">高</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">IPv6 支持</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">部分</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">✓</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">适用场景</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">大型集群，需要网络策略</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">小型集群，简单部署</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">中型集群，需要加密</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">需要高性能和高级网络策略</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section>
+            <h2>CNI 排障</h2>
+            <p>在排查 CNI 相关问题时，可以使用以下命令和工具：</p>
+            
+            <div class="experiment-card">
+                <h3>常用 CNI 排障命令</h3>
+                <div class="code-block">
+# 查看节点上的 CNI 配置
+ls -la /etc/cni/net.d/
+
+# 查看 CNI 插件二进制文件
+ls -la /opt/cni/bin/
+
+# 查看 Pod 的网络接口
+kubectl exec -it <pod-name> -- ip addr
+
+# 查看节点上的网络接口
+ip addr
+
+# 查看节点上的路由表
+ip route
+
+# 查看 CNI 插件日志
+journalctl -u kubelet | grep cni
+
+# 查看 Calico 节点状态
+kubectl get pods -n kube-system -l k8s-app=calico-node
+kubectl logs -n kube-system -l k8s-app=calico-node
+
+# 查看 Flannel 节点状态
+kubectl get pods -n kube-system -l app=flannel
+kubectl logs -n kube-system -l app=flannel
+
+# 检查 Pod CIDR 分配
+kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'
+
+# 测试 Pod 间连通性
+kubectl exec -it <pod-name> -- ping <target-pod-ip>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>CNI 最佳实践</h2>
+            <p>在选择和使用 CNI 插件时，可以参考以下最佳实践：</p>
+            
+            <h3>1. 选择合适的 CNI 插件</h3>
+            <ul>
+                <li>对于小型集群或测试环境，可以选择 Flannel，部署简单</li>
+                <li>对于需要网络策略的环境，可以选择 Calico 或 Cilium</li>
+                <li>对于需要高性能的环境，可以选择 Calico（BGP 模式）或 Cilium（eBPF）</li>
+                <li>对于需要加密通信的环境，可以选择 Weave Net 或 Cilium</li>
+            </ul>
+            
+            <h3>2. 网络配置</h3>
+            <ul>
+                <li>确保 Pod CIDR 与现有网络不冲突</li>
+                <li>为大型集群预留足够的 IP 地址空间</li>
+                <li>考虑使用 IPAM 插件管理 IP 地址分配</li>
+                <li>根据需要配置 MTU，避免分片问题</li>
+            </ul>
+            
+            <h3>3. 性能优化</h3>
+            <ul>
+                <li>在支持的环境中，使用 BGP 模式而非 Overlay 网络</li>
+                <li>考虑使用 eBPF 技术提升性能</li>
+                <li>适当调整 CNI 插件的资源限制</li>
+                <li>监控网络性能，及时发现问题</li>
+            </ul>
+            
+            <h3>4. 安全考虑</h3>
+            <ul>
+                <li>使用网络策略限制 Pod 间通信</li>
+                <li>考虑启用网络加密</li>
+                <li>定期更新 CNI 插件，修复安全漏洞</li>
+                <li>限制对 CNI 配置的访问权限</li>
+            </ul>
+        </section>
+
+        <section>
+            <p>CNI 插件是 Kubernetes 网络的基础，选择合适的 CNI 插件对于构建可靠、高性能的 Kubernetes 集群至关重要。了解不同 CNI 插件的特点和工作原理，可以帮助你更好地规划和管理 Kubernetes 网络。</p>
+            <a href="experiments.html" class="button">进行动手实验</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

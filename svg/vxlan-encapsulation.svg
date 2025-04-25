@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+    <!-- 背景 -->
+    <rect width="800" height="600" fill="#f8f9fa" />
+    
+    <!-- 标题 -->
+    <text x="400" y="30" font-family="Arial, sans-serif" font-size="24" text-anchor="middle" fill="#333">VXLAN数据包封装与解封装过程</text>
+    
+    <!-- 原始数据包 -->
+    <rect x="100" y="80" width="600" height="100" rx="5" ry="5" fill="#e7f5ff" stroke="#74c0fc" stroke-width="2" />
+    <text x="400" y="110" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#495057">原始Pod数据包</text>
+    
+    <!-- 原始数据包内部结构 -->
+    <rect x="120" y="130" width="120" height="30" rx="0" ry="0" fill="#d0bfff" stroke="#9775fa" stroke-width="1" />
+    <text x="180" y="150" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">源MAC</text>
+    
+    <rect x="240" y="130" width="120" height="30" rx="0" ry="0" fill="#d0bfff" stroke="#9775fa" stroke-width="1" />
+    <text x="300" y="150" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">目标MAC</text>
+    
+    <rect x="360" y="130" width="120" height="30" rx="0" ry="0" fill="#ffd8a8" stroke="#ffa94d" stroke-width="1" />
+    <text x="420" y="150" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">源IP: 10.244.1.2</text>
+    
+    <rect x="480" y="130" width="120" height="30" rx="0" ry="0" fill="#ffd8a8" stroke="#ffa94d" stroke-width="1" />
+    <text x="540" y="150" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">目标IP: 10.244.2.3</text>
+    
+    <rect x="600" y="130" width="80" height="30" rx="0" ry="0" fill="#c0eb75" stroke="#94d82d" stroke-width="1" />
+    <text x="640" y="150" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">数据</text>
+    
+    <!-- 封装过程箭头 -->
+    <path d="M 400 190 L 400 230" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arrowhead)" />
+    <text x="420" y="210" font-family="Arial, sans-serif" font-size="14" fill="#495057">VXLAN封装</text>
+    
+    <!-- VXLAN封装数据包 -->
+    <rect x="50" y="240" width="700" height="160" rx="5" ry="5" fill="#fff9db" stroke="#fcc419" stroke-width="2" />
+    <text x="400" y="270" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#495057">VXLAN封装后的数据包</text>
+    
+    <!-- 外部UDP/IP头 -->
+    <rect x="70" y="300" width="120" height="30" rx="0" ry="0" fill="#d0bfff" stroke="#9775fa" stroke-width="1" />
+    <text x="130" y="320" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">外部源MAC</text>
+    
+    <rect x="190" y="300" width="120" height="30" rx="0" ry="0" fill="#d0bfff" stroke="#9775fa" stroke-width="1" />
+    <text x="250" y="320" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">外部目标MAC</text>
+    
+    <rect x="310" y="300" width="120" height="30" rx="0" ry="0" fill="#ffd8a8" stroke="#ffa94d" stroke-width="1" />
+    <text x="370" y="320" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">外部源IP: 192.168.1.10</text>
+    
+    <rect x="430" y="300" width="120" height="30" rx="0" ry="0" fill="#ffd8a8" stroke="#ffa94d" stroke-width="1" />
+    <text x="490" y="320" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">外部目标IP: 192.168.1.11</text>
+    
+    <rect x="550" y="300" width="80" height="30" rx="0" ry="0" fill="#ffc9c9" stroke="#ff8787" stroke-width="1" />
+    <text x="590" y="320" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">UDP: 4789</text>
+    
+    <rect x="630" y="300" width="100" height="30" rx="0" ry="0" fill="#ffdeeb" stroke="#faa2c1" stroke-width="1" />
+    <text x="680" y="320" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">VXLAN头</text>
+    
+    <!-- VXLAN内部原始数据包 -->
+    <rect x="70" y="350" width="660" height="30" rx="0" ry="0" fill="#e7f5ff" stroke="#74c0fc" stroke-width="1" />
+    <text x="400" y="370" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">原始Pod数据包 (完整保留)</text>
+    
+    <!-- 传输过程箭头 -->
+    <path d="M 400 410 L 400 450" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arrowhead)" />
+    <text x="420" y="430" font-family="Arial, sans-serif" font-size="14" fill="#495057">通过物理网络传输</text>
+    
+    <!-- 解封装过程 -->
+    <rect x="100" y="460" width="600" height="100" rx="5" ry="5" fill="#e7f5ff" stroke="#74c0fc" stroke-width="2" />
+    <text x="400" y="490" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#495057">VXLAN解封装后的原始数据包</text>
+    
+    <!-- 解封装后的数据包内部结构 -->
+    <rect x="120" y="510" width="120" height="30" rx="0" ry="0" fill="#d0bfff" stroke="#9775fa" stroke-width="1" />
+    <text x="180" y="530" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">源MAC</text>
+    
+    <rect x="240" y="510" width="120" height="30" rx="0" ry="0" fill="#d0bfff" stroke="#9775fa" stroke-width="1" />
+    <text x="300" y="530" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">目标MAC</text>
+    
+    <rect x="360" y="510" width="120" height="30" rx="0" ry="0" fill="#ffd8a8" stroke="#ffa94d" stroke-width="1" />
+    <text x="420" y="530" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">源IP: 10.244.1.2</text>
+    
+    <rect x="480" y="510" width="120" height="30" rx="0" ry="0" fill="#ffd8a8" stroke="#ffa94d" stroke-width="1" />
+    <text x="540" y="530" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">目标IP: 10.244.2.3</text>
+    
+    <rect x="600" y="510" width="80" height="30" rx="0" ry="0" fill="#c0eb75" stroke="#94d82d" stroke-width="1" />
+    <text x="640" y="530" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">数据</text>
+    
+    <!-- 箭头定义 -->
+    <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#495057" />
+        </marker>
+    </defs>
+    
+    <!-- 说明文本 -->
+    <text x="100" y="570" font-family="Arial, sans-serif" font-size="14" fill="#495057">VXLAN封装过程：原始Pod数据包被完整封装在VXLAN数据包中，添加外部IP/UDP头和VXLAN头</text>
+</svg>

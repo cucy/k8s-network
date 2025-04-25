@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对详解 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对详解</h2>
+            <p>虚拟以太网对（Virtual Ethernet Pair，简称 Veth 对）是 Linux 内核提供的一种特殊的网络设备，它总是成对出现，可以把它们想象成由一根虚拟网线连接的一对网卡。Veth 对是构建容器网络的基础，也是 Kubernetes 网络实现的关键组件。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/veth-pair.svg" class="diagram">
+                    Veth 对示意图
+                </object>
+            </div>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html" class="active">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces.html">Veth 对与网络命名空间</a></li>
+                    <li><a href="veth-bridges.html">Veth 对与网桥</a></li>
+                    <li><a href="veth-kubernetes.html">Veth 对在 Kubernetes 中的应用</a></li>
+                    <li><a href="veth-troubleshooting.html">Veth 对故障排除</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的基本概念</h2>
+            <p>Veth 对是 Linux 内核中的一种虚拟网络设备，具有以下特点：</p>
+            <ul>
+                <li><strong>成对创建</strong>：Veth 设备总是成对创建，一端连接到一个网络环境，另一端连接到另一个网络环境</li>
+                <li><strong>双向通道</strong>：Veth 对提供一个双向通道，从一端进入的数据包会从另一端出来</li>
+                <li><strong>状态关联</strong>：一端设备的状态变化会影响另一端，例如，如果一端设备关闭，另一端也会变为不可用</li>
+                <li><strong>命名空间隔离</strong>：Veth 对的两端可以位于不同的网络命名空间，从而连接不同的网络环境</li>
+                <li><strong>无封装开销</strong>：与其他虚拟网络技术（如 VXLAN、GRE）相比，Veth 对没有额外的封装开销</li>
+            </ul>
+            
+            <div class="info-box">
+                <h3>Veth 对与物理网络设备的比较</h3>
+                <table>
+                    <tr>
+                        <th>特性</th>
+                        <th>Veth 对</th>
+                        <th>物理网络设备</th>
+                    </tr>
+                    <tr>
+                        <td>创建方式</td>
+                        <td>软件创建，成对出现</td>
+                        <td>硬件设备，独立存在</td>
+                    </tr>
+                    <tr>
+                        <td>数据传输</td>
+                        <td>内核内存中直接传递</td>
+                        <td>通过物理介质传输</td>
+                    </tr>
+                    <tr>
+                        <td>性能</td>
+                        <td>高性能，无物理传输延迟</td>
+                        <td>受物理介质和距离限制</td>
+                    </tr>
+                    <tr>
+                        <td>可靠性</td>
+                        <td>不受物理因素影响</td>
+                        <td>可能受物理损坏影响</td>
+                    </tr>
+                    <tr>
+                        <td>灵活性</td>
+                        <td>可动态创建和删除</td>
+                        <td>物理安装，不易变更</td>
+                    </tr>
+                </table>
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的工作原理</h2>
+            <p>Veth 对的工作原理相对简单，但理解它对于掌握容器网络和 Kubernetes 网络至关重要：</p>
+            
+            <h3>基本数据流</h3>
+            <ol>
+                <li>当数据包从一端（veth0）进入时，它会被直接传送到另一端（veth1）</li>
+                <li>在传输过程中，数据包不会被修改（除非有特殊的 iptables 规则或 tc 策略）</li>
+                <li>从接收端（veth1）看，数据包就像是从外部网络接收到的一样</li>
+                <li>如果接收端（veth1）关闭或不存在，数据包会被丢弃</li>
+            </ol>
+            
+            <div class="diagram-container">
+                <img src="svg/veth-data-flow.svg" alt="Veth 对数据流示意图" style="max-width: 100%; height: auto;">
+            </div>
+            
+            <h3>内核实现</h3>
+            <p>从 Linux 内核实现的角度来看：</p>
+            <ul>
+                <li>Veth 对在内核中由 <code>drivers/net/veth.c</code> 实现</li>
+                <li>当一个 Veth 设备收到数据包时，它会直接调用对端设备的发送函数</li>
+                <li>Veth 设备使用内核的 netdevice 子系统，支持标准的网络设备操作</li>
+                <li>Veth 设备支持多种功能，包括 VLAN 标记、多播、更改 MAC 地址等</li>
+            </ul>
+            
+            <div class="code-block">
+# 查看 Veth 设备的内核模块信息
+modinfo veth
+
+# 查看系统中的 Veth 设备
+ip link show type veth
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的应用场景</h2>
+            <p>Veth 对在网络虚拟化和容器技术中有广泛的应用：</p>
+            
+            <div class="experiment-card">
+                <h3>1. 连接网络命名空间</h3>
+                <p>最常见的用途是连接不同的网络命名空间，使它们能够相互通信：</p>
+                <ul>
+                    <li>一端放在主机网络命名空间，另一端放在容器网络命名空间</li>
+                    <li>两端分别放在不同的容器网络命名空间</li>
+                </ul>
+                <p>这种方式是容器网络实现的基础，也是 Kubernetes Pod 网络的关键组件。</p>
+                <a href="veth-namespaces.html" class="button">详细了解 Veth 对与网络命名空间</a>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2. 连接到网桥</h3>
+                <p>Veth 对常与 Linux 网桥（Bridge）结合使用：</p>
+                <ul>
+                    <li>一端连接到容器网络命名空间</li>
+                    <li>另一端连接到主机上的网桥</li>
+                </ul>
+                <p>这种方式使多个容器可以通过网桥相互通信，形成一个虚拟局域网。</p>
+                <a href="veth-bridges.html" class="button">详细了解 Veth 对与网桥</a>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>3. 与 OVS 集成</h3>
+                <p>Veth 对可以与 Open vSwitch (OVS) 集成：</p>
+                <ul>
+                    <li>一端连接到容器网络命名空间</li>
+                    <li>另一端连接到 OVS 网桥</li>
+                </ul>
+                <p>这种方式提供了更强大的网络控制和管理能力，支持 SDN（软件定义网络）。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>4. 容器网络实现</h3>
+                <p>各种容器运行时和 CNI 插件使用 Veth 对实现容器网络：</p>
+                <ul>
+                    <li><strong>Docker</strong>：默认的 bridge 网络使用 Veth 对连接容器和 docker0 网桥</li>
+                    <li><strong>Kubernetes CNI</strong>：大多数 CNI 插件（如 Flannel、Calico、Weave）使用 Veth 对连接 Pod 和节点网络</li>
+                </ul>
+                <a href="veth-kubernetes.html" class="button">详细了解 Veth 对在 Kubernetes 中的应用</a>
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对的基本操作</h2>
+            <p>下面介绍 Veth 对的基本操作命令，这些命令在理解和调试容器网络时非常有用：</p>
+            
+            <h3>创建 Veth 对</h3>
+            <div class="code-block">
+# 创建一对名为 veth0 和 veth1 的 Veth 设备
+ip link add veth0 type veth peer name veth1
+
+# 查看创建的 Veth 对
+ip link show veth0
+ip link show veth1
+            </div>
+            
+            <h3>配置 Veth 对</h3>
+            <div class="code-block">
+# 为 Veth 设备配置 IP 地址
+ip addr add 192.168.1.1/24 dev veth0
+ip addr add 192.168.1.2/24 dev veth1
+
+# 启用 Veth 设备
+ip link set veth0 up
+ip link set veth1 up
+
+# 测试连通性
+ping -c 3 192.168.1.2 -I veth0
+            </div>
+            
+            <h3>将 Veth 对放入不同的网络命名空间</h3>
+            <div class="code-block">
+# 创建网络命名空间
+ip netns add ns1
+
+# 创建 Veth 对
+ip link add veth0 type veth peer name veth1
+
+# 将 veth1 放入 ns1 命名空间
+ip link set veth1 netns ns1
+
+# 配置 veth0（主机端）
+ip addr add 192.168.1.1/24 dev veth0
+ip link set veth0 up
+
+# 配置 veth1（ns1 端）
+ip netns exec ns1 ip addr add 192.168.1.2/24 dev veth1
+ip netns exec ns1 ip link set veth1 up
+ip netns exec ns1 ip link set lo up
+
+# 测试连通性
+ping -c 3 192.168.1.2 -I veth0
+ip netns exec ns1 ping -c 3 192.168.1.1
+            </div>
+            
+            <h3>删除 Veth 对</h3>
+            <div class="code-block">
+# 删除 Veth 对（只需删除一端，另一端会自动删除）
+ip link delete veth0
+
+# 验证删除
+ip link show veth0 2>/dev/null || echo "veth0 已删除"
+ip link show veth1 2>/dev/null || echo "veth1 已删除"
+            </div>
+            
+            <p>更详细的 Veth 对创建和管理操作，请参考 <a href="veth-creation.html">Veth 对的创建与管理</a>。</p>
+        </section>
+
+        <section>
+            <h2>Veth 对的性能特性</h2>
+            <p>Veth 对作为一种虚拟网络设备，具有一些独特的性能特性：</p>
+            
+            <h3>性能优势</h3>
+            <ul>
+                <li><strong>低延迟</strong>：Veth 对在内核内存中直接传递数据，没有物理传输延迟</li>
+                <li><strong>高吞吐量</strong>：理论上可以达到内存带宽的限制</li>
+                <li><strong>无封装开销</strong>：与 VXLAN、GRE 等隧道技术相比，没有额外的封装/解封装开销</li>
+                <li><strong>可靠性高</strong>：不受物理网络故障影响</li>
+            </ul>
+            
+            <h3>性能限制</h3>
+            <ul>
+                <li><strong>单机限制</strong>：Veth 对只能在同一主机上的网络命名空间之间通信</li>
+                <li><strong>内核资源消耗</strong>：大量的 Veth 对会消耗内核内存和处理资源</li>
+                <li><strong>MTU 继承</strong>：Veth 对的 MTU 受限于对端设备的 MTU</li>
+            </ul>
+            
+            <h3>性能测试</h3>
+            <div class="code-block">
+# 在两个网络命名空间之间使用 iperf3 测试 Veth 对性能
+# 创建网络命名空间和 Veth 对
+ip netns add ns1
+ip netns add ns2
+ip link add veth1 type veth peer name veth2
+ip link set veth1 netns ns1
+ip link set veth2 netns ns2
+ip netns exec ns1 ip addr add 192.168.1.1/24 dev veth1
+ip netns exec ns2 ip addr add 192.168.1.2/24 dev veth2
+ip netns exec ns1 ip link set veth1 up
+ip netns exec ns1 ip link set lo up
+ip netns exec ns2 ip link set veth2 up
+ip netns exec ns2 ip link set lo up
+
+# 在 ns2 中启动 iperf3 服务器
+ip netns exec ns2 iperf3 -s &
+
+# 在 ns1 中运行 iperf3 客户端
+ip netns exec ns1 iperf3 -c 192.168.1.2 -t 5
+
+# 清理
+kill $(pgrep -f "iperf3 -s")
+ip netns delete ns1
+ip netns delete ns2
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对与其他虚拟网络技术的比较</h2>
+            <p>Veth 对是众多虚拟网络技术中的一种，了解它与其他技术的区别有助于选择合适的网络解决方案：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Veth vs TUN/TAP</div>
+                    <div class="tab">Veth vs MACVLAN</div>
+                    <div class="tab">Veth vs IPVLAN</div>
+                    <div class="tab">Veth vs 隧道技术</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>Veth 对与 TUN/TAP</h3>
+                        <p>TUN（网络隧道）和 TAP（网络分接）设备是另一种常见的虚拟网络设备：</p>
+                        
+                        <table>
+                            <tr>
+                                <th>特性</th>
+                                <th>Veth 对</th>
+                                <th>TUN/TAP</th>
+                            </tr>
+                            <tr>
+                                <td>工作层次</td>
+                                <td>二层（以太网）</td>
+                                <td>TUN：三层（IP）<br>TAP：二层（以太网）</td>
+                            </tr>
+                            <tr>
+                                <td>主要用途</td>
+                                <td>连接网络命名空间</td>
+                                <td>连接用户空间程序和内核网络栈</td>
+                            </tr>
+                            <tr>
+                                <td>数据流向</td>
+                                <td>一端到另一端</td>
+                                <td>内核网络栈与用户空间程序之间</td>
+                            </tr>
+                            <tr>
+                                <td>典型应用</td>
+                                <td>容器网络、网桥连接</td>
+                                <td>VPN、虚拟机网络</td>
+                            </tr>
+                        </table>
+                        
+                        <p>TUN/TAP 设备主要用于将网络数据包从内核传递到用户空间程序（如 OpenVPN、QEMU），而 Veth 对主要用于连接不同的网络命名空间。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Veth 对与 MACVLAN</h3>
+                        <p>MACVLAN 允许在单个物理网络接口上创建多个具有不同 MAC 地址的虚拟网络接口：</p>
+                        
+                        <table>
+                            <tr>
+                                <th>特性</th>
+                                <th>Veth 对</th>
+                                <th>MACVLAN</th>
+                            </tr>
+                            <tr>
+                                <td>工作原理</td>
+                                <td>成对虚拟设备，点对点连接</td>
+                                <td>基于 MAC 地址的虚拟子接口</td>
+                            </tr>
+                            <tr>
+                                <td>与物理网络关系</td>
+                                <td>需要额外配置（如网桥、路由）才能连接物理网络</td>
+                                <td>直接连接到物理网络</td>
+                            </tr>
+                            <tr>
+                                <td>IP 地址分配</td>
+                                <td>需要手动配置或通过 DHCP</td>
+                                <td>可以从物理网络直接获取 IP（如通过 DHCP）</td>
+                            </tr>
+                            <tr>
+                                <td>性能</td>
+                                <td>有额外的处理开销</td>
+                                <td>接近物理网卡性能</td>
+                            </tr>
+                            <tr>
+                                <td>隔离性</td>
+                                <td>完全隔离，需要显式配置连接</td>
+                                <td>默认情况下可以直接通信</td>
+                            </tr>
+                        </table>
+                        
+                        <p>MACVLAN 适合需要直接连接到物理网络的场景，而 Veth 对更适合需要灵活网络拓扑和隔离控制的场景。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Veth 对与 IPVLAN</h3>
+                        <p>IPVLAN 类似于 MACVLAN，但所有虚拟接口共享相同的 MAC 地址：</p>
+                        
+                        <table>
+                            <tr>
+                                <th>特性</th>
+                                <th>Veth 对</th>
+                                <th>IPVLAN</th>
+                            </tr>
+                            <tr>
+                                <td>MAC 地址</td>
+                                <td>每个接口有独立的 MAC 地址</td>
+                                <td>所有接口共享父接口的 MAC 地址</td>
+                            </tr>
+                            <tr>
+                                <td>工作模式</td>
+                                <td>点对点连接</td>
+                                <td>L2（类似交换机）或 L3（类似路由器）模式</td>
+                            </tr>
+                            <tr>
+                                <td>资源消耗</td>
+                                <td>每对消耗两个网络设备资源</td>
+                                <td>比 MACVLAN 更节省资源（无需维护多个 MAC 表项）</td>
+                            </tr>
+                            <tr>
+                                <td>适用环境</td>
+                                <td>需要灵活网络拓扑的环境</td>
+                                <td>MAC 地址数量受限或需要节省资源的环境</td>
+                            </tr>
+                        </table>
+                        
+                        <p>IPVLAN 在 MAC 地址资源受限的环境中有优势，而 Veth 对在需要完全隔离和灵活连接的场景中更适用。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Veth 对与隧道技术</h3>
+                        <p>隧道技术（如 VXLAN、GRE、IPsec）用于在现有网络上创建虚拟网络：</p>
+                        
+                        <table>
+                            <tr>
+                                <th>特性</th>
+                                <th>Veth 对</th>
+                                <th>隧道技术（VXLAN、GRE等）</th>
+                            </tr>
+                            <tr>
+                                <td>工作范围</td>
+                                <td>单机内部</td>
+                                <td>可跨多台物理机器</td>
+                            </tr>
+                            <tr>
+                                <td>封装开销</td>
+                                <td>无封装开销</td>
+                                <td>有封装/解封装开销</td>
+                            </tr>
+                            <tr>
+                                <td>网络隔离</td>
+                                <td>命名空间级别隔离</td>
+                                <td>可实现跨主机的网络隔离</td>
+                            </tr>
+                            <tr>
+                                <td>适用场景</td>
+                                <td>单机容器网络</td>
+                                <td>跨主机容器/虚拟机网络</td>
+                            </tr>
+                            <tr>
+                                <td>性能</td>
+                                <td>高性能，低延迟</td>
+                                <td>有一定性能开销</td>
+                            </tr>
+                        </table>
+                        
+                        <p>Veth 对适用于单机内部网络连接，而隧道技术适用于跨主机的网络连接。在 Kubernetes 中，通常结合使用 Veth 对（节点内通信）和隧道技术（节点间通信）。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>总结</h2>
+            <p>Veth 对是 Linux 网络虚拟化的基础组件，也是容器网络和 Kubernetes 网络的核心技术之一。本文介绍了 Veth 对的基本概念、工作原理、应用场景和基本操作，为深入理解容器网络奠定了基础。</p>
+            
+            <p>要深入了解 Veth 对的各个方面，请参考以下页面：</p>
+            <ul>
+                <li><a href="veth-creation.html">Veth 对的创建与管理</a> - 详细介绍 Veth 对的创建、配置和管理</li>
+                <li><a href="veth-namespaces.html">Veth 对与网络命名空间</a> - 探讨 Veth 对如何连接不同的网络命名空间</li>
+                <li><a href="veth-bridges.html">Veth 对与网桥</a> - 介绍 Veth 对与网桥的结合使用</li>
+                <li><a href="veth-kubernetes.html">Veth 对在 Kubernetes 中的应用</a> - 分析 Veth 对在 Kubernetes 网络中的角色</li>
+                <li><a href="veth-troubleshooting.html">Veth 对故障排除</a> - 常见问题和故障排除方法</li>
+            </ul>
+            
+            <div class="experiment-card">
+                <h3>进一步学习</h3>
+                <p>如果你想深入了解 Linux 网络虚拟化和容器网络，以下资源可能对你有帮助：</p>
+                <ul>
+                    <li><a href="network-namespaces.html">网络命名空间</a> - 了解网络命名空间的概念和操作</li>
+                    <li><a href="network-bridges.html">网络桥接</a> - 深入探讨 Linux 网桥的工作原理和应用</li>
+                    <li><a href="pod-to-pod-networking.html">Pod 间通信</a> - 了解 Kubernetes 中 Pod 间的通信机制</li>
+                    <li><a href="cni.html">CNI 插件</a> - 探索 Kubernetes 容器网络接口及其实现</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <a href="veth-creation.html" class="button">继续阅读：Veth 对的创建与管理</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

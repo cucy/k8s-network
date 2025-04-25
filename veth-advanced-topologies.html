@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对高级网络拓扑 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对高级网络拓扑</h2>
+            <p>在前面的章节中，我们介绍了如何使用 Veth 对连接两个网络命名空间。本页将探讨更复杂的网络拓扑，包括多命名空间连接、星型拓扑、环形拓扑和混合拓扑，这些知识对于理解复杂容器网络环境至关重要。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/veth-advanced-topologies.svg" class="diagram">
+                    Veth 对高级网络拓扑示意图
+                </object>
+            </div>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces-basics.html">Veth 对与网络命名空间基础</a></li>
+                    <li><a href="veth-advanced-topologies.html" class="active">Veth 对高级网络拓扑</a></li>
+                    <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                    <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+                    <li><a href="veth-bridges.html">Veth 对与网桥</a></li>
+                    <li><a href="veth-kubernetes.html">Veth 对在 Kubernetes 中的应用</a></li>
+                    <li><a href="veth-troubleshooting.html">Veth 对故障排除</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>多命名空间网络拓扑</h2>
+            <p>在实际的容器环境中，通常需要连接多个网络命名空间，形成各种复杂的网络拓扑。本节将介绍几种常见的多命名空间网络拓扑及其实现方法。</p>
+            
+            <h3>为什么需要复杂拓扑？</h3>
+            <p>在实际应用中，复杂的网络拓扑可以满足各种需求：</p>
+            <ul>
+                <li><strong>微服务架构</strong>：不同的微服务可能需要不同的网络隔离级别</li>
+                <li><strong>多层应用</strong>：前端、后端、数据库等组件可能需要不同的网络策略</li>
+                <li><strong>网络功能虚拟化</strong>：实现复杂的网络功能链</li>
+                <li><strong>测试环境</strong>：模拟复杂的生产网络环境</li>
+                <li><strong>安全隔离</strong>：实现多级安全隔离策略</li>
+            </ul>
+            
+            <p>接下来，我们将探讨几种常见的网络拓扑及其实现方法。</p>
+        </section>
+
+        <section>
+            <h2>三命名空间连接</h2>
+            <p>连接三个网络命名空间是构建复杂拓扑的基础。有几种方法可以实现这一点：</p>
+            
+            <div class="experiment-card">
+                <h3>方法 1：直接连接（三角形拓扑）</h3>
+                <p>在这种拓扑中，三个命名空间两两直接连接，形成一个三角形。</p>
+                
+                <div class="diagram-container">
+                    <img src="svg/veth-triangle-topology.svg" alt="三角形拓扑示意图" style="max-width: 100%; height: auto;">
+                </div>
+                
+                <p>这种拓扑的特点是：</p>
+                <ul>
+                    <li>每个命名空间都可以直接与其他两个命名空间通信</li>
+                    <li>需要为每个命名空间创建两对 Veth 设备</li>
+                    <li>路由配置相对简单</li>
+                    <li>适合小规模网络</li>
+                </ul>
+                
+                <p>实现步骤将在下面的实验中详细介绍。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>方法 2：中心辐射型（星型拓扑）</h3>
+                <p>在这种拓扑中，一个中心命名空间连接到其他两个命名空间，形成星型结构。</p>
+                
+                <div class="diagram-container">
+                    <img src="svg/veth-star-topology.svg" alt="星型拓扑示意图" style="max-width: 100%; height: auto;">
+                </div>
+                
+                <p>这种拓扑的特点是：</p>
+                <ul>
+                    <li>中心命名空间可以直接与其他命名空间通信</li>
+                    <li>非中心命名空间之间的通信需要经过中心命名空间</li>
+                    <li>中心命名空间需要启用 IP 转发</li>
+                    <li>适合集中管理的网络</li>
+                </ul>
+                
+                <p>实现步骤将在下面的实验中详细介绍。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>方法 3：使用网桥</h3>
+                <p>在这种拓扑中，使用 Linux 网桥连接多个命名空间。</p>
+                
+                <div class="diagram-container">
+                    <img src="svg/veth-bridge-topology.svg" alt="网桥拓扑示意图" style="max-width: 100%; height: auto;">
+                </div>
+                
+                <p>这种拓扑的特点是：</p>
+                <ul>
+                    <li>所有命名空间都连接到同一个网桥</li>
+                    <li>网桥充当二层交换机，实现命名空间之间的通信</li>
+                    <li>配置简单，易于扩展</li>
+                    <li>适合大规模网络</li>
+                </ul>
+                
+                <p>实现步骤将在下面的实验中详细介绍。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验：三角形拓扑</h2>
+            <p>在这个实验中，我们将创建三个网络命名空间，并使用 Veth 对将它们两两连接，形成一个三角形拓扑。</p>
+            
+            <h3>实验目标</h3>
+            <p>创建如下拓扑：</p>
+            <ul>
+                <li>三个网络命名空间：ns1、ns2、ns3</li>
+                <li>ns1 和 ns2 通过 veth1-1/veth1-2 连接</li>
+                <li>ns2 和 ns3 通过 veth2-2/veth2-3 连接</li>
+                <li>ns3 和 ns1 通过 veth3-3/veth3-1 连接</li>
+                <li>每个命名空间都可以直接与其他两个命名空间通信</li>
+            </ul>
+            
+            <h3>实验步骤</h3>
+            <div class="code-block">
+# 步骤 1：创建三个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+sudo ip netns add ns3
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <div class="code-block">
+# 步骤 2：创建三对 Veth 设备
+# ns1 和 ns2 之间的 Veth 对
+sudo ip link add veth1-1 type veth peer name veth1-2
+
+# ns2 和 ns3 之间的 Veth 对
+sudo ip link add veth2-2 type veth peer name veth2-3
+
+# ns3 和 ns1 之间的 Veth 对
+sudo ip link add veth3-3 type veth peer name veth3-1
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <div class="code-block">
+# 步骤 3：将 Veth 设备分配到相应的网络命名空间
+# ns1 的设备
+sudo ip link set veth1-1 netns ns1
+sudo ip link set veth3-1 netns ns1
+
+# ns2 的设备
+sudo ip link set veth1-2 netns ns2
+sudo ip link set veth2-2 netns ns2
+
+# ns3 的设备
+sudo ip link set veth2-3 netns ns3
+sudo ip link set veth3-3 netns ns3
+
+# 验证分配结果
+sudo ip netns exec ns1 ip link show
+sudo ip netns exec ns2 ip link show
+sudo ip netns exec ns3 ip link show
+</div>
+            
+            <div class="code-block">
+# 步骤 4：配置 IP 地址
+# ns1 的设备
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1-1
+sudo ip netns exec ns1 ip addr add 10.0.3.1/24 dev veth3-1
+sudo ip netns exec ns1 ip link set veth1-1 up
+sudo ip netns exec ns1 ip link set veth3-1 up
+sudo ip netns exec ns1 ip link set lo up
+
+# ns2 的设备
+sudo ip netns exec ns2 ip addr add 10.0.1.2/24 dev veth1-2
+sudo ip netns exec ns2 ip addr add 10.0.2.2/24 dev veth2-2
+sudo ip netns exec ns2 ip link set veth1-2 up
+sudo ip netns exec ns2 ip link set veth2-2 up
+sudo ip netns exec ns2 ip link set lo up
+
+# ns3 的设备
+sudo ip netns exec ns3 ip addr add 10.0.2.3/24 dev veth2-3
+sudo ip netns exec ns3 ip addr add 10.0.3.3/24 dev veth3-3
+sudo ip netns exec ns3 ip link set veth2-3 up
+sudo ip netns exec ns3 ip link set veth3-3 up
+sudo ip netns exec ns3 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2 ip addr
+sudo ip netns exec ns3 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 5：配置路由
+# ns1 的路由
+sudo ip netns exec ns1 ip route add 10.0.2.0/24 via 10.0.1.2
+
+# ns2 的路由
+sudo ip netns exec ns2 ip route add 10.0.3.0/24 via 10.0.2.3
+
+# ns3 的路由
+sudo ip netns exec ns3 ip route add 10.0.1.0/24 via 10.0.3.1
+
+# 验证路由配置
+sudo ip netns exec ns1 ip route
+sudo ip netns exec ns2 ip route
+sudo ip netns exec ns3 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 6：测试连通性
+# 从 ns1 测试
+sudo ip netns exec ns1 ping -c 3 10.0.1.2  # 直接连接到 ns2
+sudo ip netns exec ns1 ping -c 3 10.0.3.3  # 直接连接到 ns3
+sudo ip netns exec ns1 ping -c 3 10.0.2.3  # 通过 ns2 连接到 ns3
+
+# 从 ns2 测试
+sudo ip netns exec ns2 ping -c 3 10.0.1.1  # 直接连接到 ns1
+sudo ip netns exec ns2 ping -c 3 10.0.2.3  # 直接连接到 ns3
+sudo ip netns exec ns2 ping -c 3 10.0.3.3  # 通过 ns3 连接到 ns3
+
+# 从 ns3 测试
+sudo ip netns exec ns3 ping -c 3 10.0.2.2  # 直接连接到 ns2
+sudo ip netns exec ns3 ping -c 3 10.0.3.1  # 直接连接到 ns1
+sudo ip netns exec ns3 ping -c 3 10.0.1.1  # 通过 ns1 连接到 ns1
+</div>
+            
+            <div class="code-block">
+# 步骤 7：清理实验环境
+sudo ip netns delete ns1
+sudo ip netns delete ns2
+sudo ip netns delete ns3
+
+# 验证清理结果
+ip netns list
+</div>
+            
+            <p>通过这个实验，我们成功创建了一个三角形拓扑，使三个网络命名空间可以相互通信。这种拓扑适用于小规模网络，但随着命名空间数量的增加，配置复杂度会迅速增加。</p>
+        </section>
+
+        <section>
+            <h2>实验：星型拓扑</h2>
+            <p>在这个实验中，我们将创建一个中心命名空间和三个边缘命名空间，形成星型拓扑。中心命名空间将负责转发边缘命名空间之间的通信。</p>
+            
+            <h3>实验目标</h3>
+            <p>创建如下拓扑：</p>
+            <ul>
+                <li>四个网络命名空间：中心 ns1 和边缘 ns2、ns3、ns4</li>
+                <li>ns1 和 ns2 通过 veth1-1/veth1-2 连接</li>
+                <li>ns1 和 ns3 通过 veth2-1/veth2-3 连接</li>
+                <li>ns1 和 ns4 通过 veth3-1/veth3-4 连接</li>
+                <li>边缘命名空间之间的通信需要通过中心命名空间转发</li>
+            </ul>
+            
+            <h3>实验步骤</h3>
+            <div class="code-block">
+# 步骤 1：创建四个网络命名空间
+sudo ip netns add ns1  # 中心命名空间
+sudo ip netns add ns2  # 边缘命名空间
+sudo ip netns add ns3  # 边缘命名空间
+sudo ip netns add ns4  # 边缘命名空间
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <div class="code-block">
+# 步骤 2：创建三对 Veth 设备
+# ns1 和 ns2 之间的 Veth 对
+sudo ip link add veth1-1 type veth peer name veth1-2
+
+# ns1 和 ns3 之间的 Veth 对
+sudo ip link add veth2-1 type veth peer name veth2-3
+
+# ns1 和 ns4 之间的 Veth 对
+sudo ip link add veth3-1 type veth peer name veth3-4
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <div class="code-block">
+# 步骤 3：将 Veth 设备分配到相应的网络命名空间
+# ns1 的设备（中心命名空间）
+sudo ip link set veth1-1 netns ns1
+sudo ip link set veth2-1 netns ns1
+sudo ip link set veth3-1 netns ns1
+
+# ns2 的设备
+sudo ip link set veth1-2 netns ns2
+
+# ns3 的设备
+sudo ip link set veth2-3 netns ns3
+
+# ns4 的设备
+sudo ip link set veth3-4 netns ns4
+
+# 验证分配结果
+sudo ip netns exec ns1 ip link show
+sudo ip netns exec ns2 ip link show
+sudo ip netns exec ns3 ip link show
+sudo ip netns exec ns4 ip link show
+</div>
+            
+            <div class="code-block">
+# 步骤 4：配置 IP 地址
+# ns1 的设备（中心命名空间）
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1-1
+sudo ip netns exec ns1 ip addr add 10.0.2.1/24 dev veth2-1
+sudo ip netns exec ns1 ip addr add 10.0.3.1/24 dev veth3-1
+sudo ip netns exec ns1 ip link set veth1-1 up
+sudo ip netns exec ns1 ip link set veth2-1 up
+sudo ip netns exec ns1 ip link set veth3-1 up
+sudo ip netns exec ns1 ip link set lo up
+
+# ns2 的设备
+sudo ip netns exec ns2 ip addr add 10.0.1.2/24 dev veth1-2
+sudo ip netns exec ns2 ip link set veth1-2 up
+sudo ip netns exec ns2 ip link set lo up
+
+# ns3 的设备
+sudo ip netns exec ns3 ip addr add 10.0.2.3/24 dev veth2-3
+sudo ip netns exec ns3 ip link set veth2-3 up
+sudo ip netns exec ns3 ip link set lo up
+
+# ns4 的设备
+sudo ip netns exec ns4 ip addr add 10.0.3.4/24 dev veth3-4
+sudo ip netns exec ns4 ip link set veth3-4 up
+sudo ip netns exec ns4 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2 ip addr
+sudo ip netns exec ns3 ip addr
+sudo ip netns exec ns4 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 5：在中心命名空间启用 IP 转发
+sudo ip netns exec ns1 sysctl -w net.ipv4.ip_forward=1
+
+# 验证 IP 转发是否启用
+sudo ip netns exec ns1 sysctl net.ipv4.ip_forward
+</div>
+            
+            <div class="code-block">
+# 步骤 6：配置路由
+# ns2 的路由（通过中心命名空间到达其他边缘命名空间）
+sudo ip netns exec ns2 ip route add 10.0.2.0/24 via 10.0.1.1
+sudo ip netns exec ns2 ip route add 10.0.3.0/24 via 10.0.1.1
+
+# ns3 的路由
+sudo ip netns exec ns3 ip route add 10.0.1.0/24 via 10.0.2.1
+sudo ip netns exec ns3 ip route add 10.0.3.0/24 via 10.0.2.1
+
+# ns4 的路由
+sudo ip netns exec ns4 ip route add 10.0.1.0/24 via 10.0.3.1
+sudo ip netns exec ns4 ip route add 10.0.2.0/24 via 10.0.3.1
+
+# 验证路由配置
+sudo ip netns exec ns2 ip route
+sudo ip netns exec ns3 ip route
+sudo ip netns exec ns4 ip route
+</div>
+            
+            <div class="code-block">
+# 步骤 7：测试连通性
+# 从 ns2 测试
+sudo ip netns exec ns2 ping -c 3 10.0.1.1  # 直接连接到中心 ns1
+sudo ip netns exec ns2 ping -c 3 10.0.2.3  # 通过中心 ns1 连接到 ns3
+sudo ip netns exec ns2 ping -c 3 10.0.3.4  # 通过中心 ns1 连接到 ns4
+
+# 从 ns3 测试
+sudo ip netns exec ns3 ping -c 3 10.0.2.1  # 直接连接到中心 ns1
+sudo ip netns exec ns3 ping -c 3 10.0.1.2  # 通过中心 ns1 连接到 ns2
+sudo ip netns exec ns3 ping -c 3 10.0.3.4  # 通过中心 ns1 连接到 ns4
+
+# 从 ns4 测试
+sudo ip netns exec ns4 ping -c 3 10.0.3.1  # 直接连接到中心 ns1
+sudo ip netns exec ns4 ping -c 3 10.0.1.2  # 通过中心 ns1 连接到 ns2
+sudo ip netns exec ns4 ping -c 3 10.0.2.3  # 通过中心 ns1 连接到 ns3
+</div>
+            
+            <div class="code-block">
+# 步骤 8：使用 traceroute 查看数据包路径
+# 安装 traceroute（如果尚未安装）
+sudo apt-get update
+sudo apt-get install -y traceroute
+
+# 从 ns2 到 ns3 的路径
+sudo ip netns exec ns2 traceroute 10.0.2.3
+
+# 从 ns3 到 ns4 的路径
+sudo ip netns exec ns3 traceroute 10.0.3.4
+
+# 从 ns4 到 ns2 的路径
+sudo ip netns exec ns4 traceroute 10.0.1.2
+</div>
+            
+            <div class="code-block">
+# 步骤 9：清理实验环境
+sudo ip netns delete ns1
+sudo ip netns delete ns2
+sudo ip netns delete ns3
+sudo ip netns delete ns4
+
+# 验证清理结果
+ip netns list
+</div>
+            
+            <p>通过这个实验，我们成功创建了一个星型拓扑，中心命名空间 ns1 负责转发边缘命名空间之间的通信。这种拓扑适用于集中管理的网络，但中心节点可能成为性能瓶颈。</p>
+        </section>
+
+        <section>
+            <h2>实验：网桥拓扑</h2>
+            <p>在这个实验中，我们将使用 Linux 网桥连接多个网络命名空间，形成一个共享的二层网络。</p>
+            
+            <h3>实验目标</h3>
+            <p>创建如下拓扑：</p>
+            <ul>
+                <li>一个主机命名空间中的 Linux 网桥 (br0)</li>
+                <li>三个网络命名空间：ns1、ns2、ns3</li>
+                <li>每个命名空间通过一对 Veth 设备连接到网桥</li>
+                <li>所有命名空间都在同一个二层网络中</li>
+            </ul>
+            
+            <h3>实验步骤</h3>
+            <div class="code-block">
+# 步骤 1：创建三个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+sudo ip netns add ns3
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <div class="code-block">
+# 步骤 2：创建网桥
+sudo ip link add br0 type bridge
+sudo ip link set br0 up
+
+# 为网桥分配 IP 地址（可选，用作命名空间的网关）
+sudo ip addr add 192.168.100.1/24 dev br0
+
+# 验证网桥创建
+ip link show br0
+ip addr show br0
+</div>
+            
+            <div class="code-block">
+# 步骤 3：创建三对 Veth 设备
+# ns1 的 Veth 对
+sudo ip link add veth0-br type veth peer name veth0-ns
+
+# ns2 的 Veth 对
+sudo ip link add veth1-br type veth peer name veth1-ns
+
+# ns3 的 Veth 对
+sudo ip link add veth2-br type veth peer name veth2-ns
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <div class="code-block">
+# 步骤 4：将 Veth 设备分配到相应的网络命名空间
+# ns1 的设备
+sudo ip link set veth0-ns netns ns1
+
+# ns2 的设备
+sudo ip link set veth1-ns netns ns2
+
+# ns3 的设备
+sudo ip link set veth2-ns netns ns3
+
+# 验证分配结果
+sudo ip netns exec ns1 ip link show
+sudo ip netns exec ns2 ip link show
+sudo ip netns exec ns3 ip link show
+</div>
+            
+            <div class="code-block">
+# 步骤 5：将 Veth 设备连接到网桥
+sudo ip link set veth0-br master br0
+sudo ip link set veth1-br master br0
+sudo ip link set veth2-br master br0
+
+# 启用网桥端的 Veth 设备
+sudo ip link set veth0-br up
+sudo ip link set veth1-br up
+sudo ip link set veth2-br up
+
+# 验证网桥连接
+bridge link show
+</div>
+            
+            <div class="code-block">
+# 步骤 6：配置命名空间中的 Veth 设备
+# ns1 的设备
+sudo ip netns exec ns1 ip addr add 192.168.100.11/24 dev veth0-ns
+sudo ip netns exec ns1 ip link set veth0-ns up
+sudo ip netns exec ns1 ip link set lo up
+sudo ip netns exec ns1 ip route add default via 192.168.100.1
+
+# ns2 的设备
+sudo ip netns exec ns2 ip addr add 192.168.100.12/24 dev veth1-ns
+sudo ip netns exec ns2 ip link set veth1-ns up
+sudo ip netns exec ns2 ip link set lo up
+sudo ip netns exec ns2 ip route add default via 192.168.100.1
+
+# ns3 的设备
+sudo ip netns exec ns3 ip addr add 192.168.100.13/24 dev veth2-ns
+sudo ip netns exec ns3 ip link set veth2-ns up
+sudo ip netns exec ns3 ip link set lo up
+sudo ip netns exec ns3 ip route add default via 192.168.100.1
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2 ip addr
+sudo ip netns exec ns3 ip addr
+</div>
+            
+            <div class="code-block">
+# 步骤 7：启用 IP 转发（如果需要与外部网络通信）
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# 验证 IP 转发是否启用
+sysctl net.ipv4.ip_forward
+</div>
+            
+            <div class="code-block">
+# 步骤 8：测试连通性
+# 从 ns1 测试
+sudo ip netns exec ns1 ping -c 3 192.168.100.1  # 网桥
+sudo ip netns exec ns1 ping -c 3 192.168.100.12  # ns2
+sudo ip netns exec ns1 ping -c 3 192.168.100.13  # ns3
+
+# 从 ns2 测试
+sudo ip netns exec ns2 ping -c 3 192.168.100.1  # 网桥
+sudo ip netns exec ns2 ping -c 3 192.168.100.11  # ns1
+sudo ip netns exec ns2 ping -c 3 192.168.100.13  # ns3
+
+# 从 ns3 测试
+sudo ip netns exec ns3 ping -c 3 192.168.100.1  # 网桥
+sudo ip netns exec ns3 ping -c 3 192.168.100.11  # ns1
+sudo ip netns exec ns3 ping -c 3 192.168.100.12  # ns2
+</div>
+            
+            <div class="code-block">
+# 步骤 9：清理实验环境
+sudo ip link delete br0  # 删除网桥会自动删除连接到它的设备
+sudo ip netns delete ns1
+sudo ip netns delete ns2
+sudo ip netns delete ns3
+
+# 验证清理结果
+ip netns list
+bridge link show
+</div>
+            
+            <p>通过这个实验，我们成功创建了一个网桥拓扑，使所有命名空间都在同一个二层网络中。这种拓扑适用于模拟局域网环境，配置简单，易于扩展。</p>
+        </section>
+
+        <section>
+            <h2>环形拓扑</h2>
+            <p>环形拓扑是另一种常见的网络拓扑，每个命名空间都与环中的相邻两个命名空间直接连接，形成一个闭环。</p>
+            
+            <div class="diagram-container">
+                <img src="svg/veth-ring-topology.svg" alt="环形拓扑示意图" style="max-width: 100%; height: auto;">
+            </div>
+            
+            <p>环形拓扑的特点是：</p>
+            <ul>
+                <li>每个命名空间都与环中的相邻两个命名空间直接连接</li>
+                <li>数据包可以顺时针或逆时针传输，提供冗余路径</li>
+                <li>连接数量等于命名空间数量</li>
+                <li>适合中等规模网络，扩展性好</li>
+                <li>可以实现负载均衡和故障转移</li>
+            </ul>
+            
+            <h3>环形拓扑实现</h3>
+            <p>以四个命名空间为例，实现环形拓扑的基本步骤如下：</p>
+            <ol>
+                <li>创建四个网络命名空间：ns1、ns2、ns3、ns4</li>
+                <li>创建四对 Veth 设备，每对连接环中相邻的两个命名空间</li>
+                <li>为每个 Veth 设备配置 IP 地址</li>
+                <li>配置路由，使每个命名空间都可以通过最短路径访问其他命名空间</li>
+            </ol>
+            
+            <p>环形拓扑的一个重要优势是提供了冗余路径。如果环中的一个连接出现故障，数据包仍然可以通过另一个方向到达目的地。这种冗余性使环形拓扑在需要高可用性的网络中非常有用。</p>
+            
+            <p>详细的环形拓扑实验将在后续更新中添加。</p>
+        </section>
+
+        <section>
+            <h2>混合拓扑</h2>
+            <p>在实际应用中，我们通常会结合多种拓扑类型，创建满足特定需求的混合拓扑。</p>
+            
+            <div class="diagram-container">
+                <img src="svg/veth-hybrid-topology.svg" alt="混合拓扑示意图" style="max-width: 100%; height: auto;">
+            </div>
+            
+            <p>混合拓扑可能包括：</p>
+            <ul>
+                <li>星型拓扑的中心节点，连接多个边缘节点</li>
+                <li>部分节点之间的直接连接（三角形或网格拓扑）</li>
+                <li>使用网桥连接的节点群组</li>
+                <li>环形连接的子网</li>
+            </ul>
+            
+            <p>混合拓扑的优势：</p>
+            <ul>
+                <li>可以根据具体需求定制网络结构</li>
+                <li>结合多种拓扑的优点</li>
+                <li>可以为不同类型的流量提供不同的路径</li>
+                <li>提供更高的灵活性和可扩展性</li>
+            </ul>
+            
+            <p>混合拓扑的设计需要考虑：</p>
+            <ul>
+                <li>网络流量模式</li>
+                <li>性能需求</li>
+                <li>可靠性要求</li>
+                <li>安全隔离需求</li>
+                <li>管理复杂度</li>
+            </ul>
+            
+            <p>详细的混合拓扑实验将在后续更新中添加。</p>
+        </section>
+
+        <section>
+            <h2>拓扑性能比较</h2>
+            <p>不同的网络拓扑在性能、可靠性、复杂度等方面各有优劣。下面是一个简要的比较：</p>
+            
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>拓扑类型</th>
+                        <th>优点</th>
+                        <th>缺点</th>
+                        <th>适用场景</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>三角形拓扑</td>
+                        <td>
+                            <ul>
+                                <li>直接连接，延迟低</li>
+                                <li>路由简单</li>
+                                <li>无单点故障</li>
+                            </ul>
+                        </td>
+                        <td>
+                            <ul>
+                                <li>连接数量呈指数增长</li>
+                                <li>扩展性差</li>
+                                <li>配置复杂</li>
+                            </ul>
+                        </td>
+                        <td>小规模网络，需要低延迟的场景</td>
+                    </tr>
+                    <tr>
+                        <td>星型拓扑</td>
+                        <td>
+                            <ul>
+                                <li>配置简单</li>
+                                <li>易于扩展</li>
+                                <li>集中管理</li>
+                            </ul>
+                        </td>
+                        <td>
+                            <ul>
+                                <li>中心节点是单点故障</li>
+                                <li>中心节点可能成为性能瓶颈</li>
+                                <li>非中心节点间通信需要额外跳转</li>
+                            </ul>
+                        </td>
+                        <td>集中管理的网络，客户端-服务器模型</td>
+                    </tr>
+                    <tr>
+                        <td>网桥拓扑</td>
+                        <td>
+                            <ul>
+                                <li>配置最简单</li>
+                                <li>扩展性好</li>
+                                <li>所有节点在同一广播域</li>
+                            </ul>
+                        </td>
+                        <td>
+                            <ul>
+                                <li>广播风暴风险</li>
+                                <li>网桥是单点故障</li>
+                                <li>安全隔离较弱</li>
+                            </ul>
+                        </td>
+                        <td>局域网环境，需要简单配置的场景</td>
+                    </tr>
+                    <tr>
+                        <td>环形拓扑</td>
+                        <td>
+                            <ul>
+                                <li>提供冗余路径</li>
+                                <li>连接数量适中</li>
+                                <li>无中心节点瓶颈</li>
+                            </ul>
+                        </td>
+                        <td>
+                            <ul>
+                                <li>路由配置复杂</li>
+                                <li>单个链路故障影响整个环</li>
+                                <li>延迟可能较高</li>
+                            </ul>
+                        </td>
+                        <td>需要冗余路径的中等规模网络</td>
+                    </tr>
+                    <tr>
+                        <td>混合拓扑</td>
+                        <td>
+                            <ul>
+                                <li>高度灵活</li>
+                                <li>可以针对需求优化</li>
+                                <li>可以结合各种拓扑的优点</li>
+                            </ul>
+                        </td>
+                        <td>
+                            <ul>
+                                <li>配置最复杂</li>
+                                <li>故障排除困难</li>
+                                <li>管理开销大</li>
+                            </ul>
+                        </td>
+                        <td>复杂网络环境，有多种通信需求的场景</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <p>在选择网络拓扑时，需要根据具体需求权衡各种因素，包括性能、可靠性、可扩展性、管理复杂度等。</p>
+        </section>
+
+        <section>
+            <h2>实际应用场景</h2>
+            <p>不同的网络拓扑适用于不同的实际应用场景：</p>
+            
+            <h3>三角形拓扑</h3>
+            <p>适用场景：</p>
+            <ul>
+                <li>小型集群中的控制平面节点</li>
+                <li>需要高可用性的关键服务</li>
+                <li>分布式数据库的核心节点</li>
+                <li>实时通信系统中的关键节点</li>
+            </ul>
+            
+            <h3>星型拓扑</h3>
+            <p>适用场景：</p>
+            <ul>
+                <li>微服务架构中的 API 网关模式</li>
+                <li>边缘计算节点连接到中心云服务</li>
+                <li>集中式日志收集系统</li>
+                <li>中心控制器管理多个工作节点</li>
+            </ul>
+            
+            <h3>网桥拓扑</h3>
+            <p>适用场景：</p>
+            <ul>
+                <li>容器网络（如 Docker 默认网络模式）</li>
+                <li>虚拟机网络</li>
+                <li>测试环境中模拟局域网</li>
+                <li>需要在同一子网中的多个隔离服务</li>
+            </ul>
+            
+            <h3>环形拓扑</h3>
+            <p>适用场景：</p>
+            <ul>
+                <li>分布式系统中的一致性协议实现</li>
+                <li>需要冗余路径的关键业务网络</li>
+                <li>工业控制网络</li>
+                <li>电信骨干网</li>
+            </ul>
+            
+            <h3>混合拓扑</h3>
+            <p>适用场景：</p>
+            <ul>
+                <li>大型企业网络</li>
+                <li>多层应用架构</li>
+                <li>具有不同安全区域的网络</li>
+                <li>云原生应用的网络架构</li>
+                <li>Kubernetes 集群网络</li>
+            </ul>
+            
+            <p>在 Kubernetes 中，容器网络接口 (CNI) 插件通常使用混合拓扑来实现 Pod 之间的通信。例如，Calico 使用 BGP 路由协议在节点之间建立网格拓扑，而 Flannel 可以使用 VXLAN 或主机网关模式，形成不同类型的拓扑。</p>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <ul>
+                <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                <li><a href="veth-namespaces-basics.html">Veth 对与网络命名空间基础</a></li>
+                <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                <li><a href="veth-bridges.html">Veth 对与网桥</a></li>
+            </ul>
+            <a href="veth-routing-advanced.html" class="button">继续阅读：Veth 对高级路由配置</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

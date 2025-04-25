@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calico BGP模式详解 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+    <meta name="description" content="深入解析Calico BGP模式的工作原理、配置方法、性能优化和故障排查">
+</head>
+<body>
+    <nav>
+        <div class="container">
+            <div class="logo">
+                <a href="index.html">Kubernetes网络学习指南</a>
+            </div>
+            <ul class="nav-links">
+                <li><a href="index.html">首页</a></li>
+                <li><a href="overlay-networks.html">Overlay网络</a></li>
+                <li><a href="geneve-technology.html">Geneve技术</a></li>
+                <li><a href="wireguard-overlay.html">WireGuard</a></li>
+                <li><a href="ebpf-networking.html">eBPF网络</a></li>
+                <li><a href="cni-overlay-integration.html">CNI与Overlay集成</a></li>
+                <li><a href="network-troubleshooting.html">网络故障排查</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <header class="page-header">
+        <div class="container">
+            <h1>Calico BGP模式详解</h1>
+            <p>深入理解Calico BGP的工作原理、配置方法、性能优化和故障排查</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="accordion">
+            <div class="accordion-item">
+                <button class="accordion-header">1. 概述与对比</button>
+                <div class="accordion-body">
+                    <p>Calico BGP模式是通过BGP协议将Kubernetes各节点的Pod网段动态通告，实现无Overlay的高性能三层网络。适用于需要与物理网络深度集成、追求极致性能和大规模集群的场景。</p>
+                    <div class="info-box">
+                        <h4>适用场景</h4>
+                        <ul>
+                            <li>数据中心/企业内部网络与K8S集群互通</li>
+                            <li>大规模集群，追求低延迟/高吞吐</li>
+                            <li>与传统网络设备（如核心路由器）集成</li>
+                        </ul>
+                    </div>
+                    <div class="comparison">
+                        <h4>Calico网络模式对比</h4>
+                        <table class="comparison-table">
+                            <tr><th>特性</th><th>BGP模式</th><th>IPinIP</th><th>VXLAN</th><th>WireGuard</th></tr>
+                            <tr><td>封装</td><td>无</td><td>IPinIP</td><td>VXLAN</td><td>可叠加</td></tr>
+                            <tr><td>性能</td><td>最高</td><td>高</td><td>中</td><td>中</td></tr>
+                            <tr><td>跨子网</td><td>需物理网络支持</td><td>支持</td><td>支持</td><td>支持</td></tr>
+                            <tr><td>安全性</td><td>依赖物理网络</td><td>无加密</td><td>无加密</td><td>强加密</td></tr>
+                            <tr><td>复杂度</td><td>中</td><td>低</td><td>低</td><td>中</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-header">2. BGP协议基础</button>
+                <div class="accordion-body">
+                    <p>BGP（边界网关协议）是一种动态路由协议，广泛用于数据中心和运营商网络。Calico利用BGP自动通告各节点Pod网段，实现全网路由可达。</p>
+                    <ul>
+                        <li><b>AS号：</b>自治系统编号，用于标识网络边界</li>
+                        <li><b>BGP Peer：</b>对等体，节点间建立BGP连接交换路由</li>
+                        <li><b>Route Reflector：</b>简化大规模集群的BGP连接关系</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-header">3. 架构与数据流</button>
+                <div class="accordion-body">
+                    <p>Calico BGP架构如下图所示：</p>
+                    <img src="svg/calico-bgp-arch.svg" alt="Calico BGP架构图" style="max-width:100%;margin:16px 0;">
+                    <ol>
+                        <li>每个Node运行BGP Client（如BIRD），与其它Node或核心路由器建立BGP对等体。</li>
+                        <li>各节点将本地Pod网段通告给全网。</li>
+                        <li>数据包根据BGP路由表直接转发，无需Overlay封装。</li>
+                        <li>可通过Route Reflector优化大规模集群的BGP连接。</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-header">4. 配置方法</button>
+                <div class="accordion-body">
+                    <h4>（1）启用BGP</h4>
+                    <pre><code>calicoctl patch felixconfiguration default --type='merge' -p '{"spec": {"bpfEnabled": false}}'</code></pre>
+                    <h4>（2）配置BGP对等体</h4>
+                    <pre><code>apiVersion: projectcalico.org/v3
+kind: BGPPeer
+metadata:
+  name: core-router
+spec:
+  peerIP: 192.168.100.1
+  asNumber: 64512
+</code></pre>
+                    <h4>（3）配置IP Pool（关闭Overlay）</h4>
+                    <pre><code>apiVersion: projectcalico.org/v3
+kind: IPPool
+metadata:
+  name: default-pool
+spec:
+  cidr: 10.244.0.0/16
+  ipipMode: Never
+  vxlanMode: Never
+  natOutgoing: true
+  nodeSelector: all()
+</code></pre>
+                    <h4>（4）Route Reflector配置（可选）</h4>
+                    <pre><code>apiVersion: projectcalico.org/v3
+kind: BGPPeer
+metadata:
+  name: rr-peer
+spec:
+  peerIP: 192.168.100.10
+  asNumber: 64512
+  nodeSelector: "has(role) && node.role == 'rr'"
+</code></pre>
+                    <div class="info-box">
+                        <b>注意：</b>生产环境建议使用Route Reflector简化BGP连接。
+                    </div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-header">5. 性能优化</button>
+                <div class="accordion-body">
+                    <ul>
+                        <li>合理划分Pod网段，避免路由表过大</li>
+                        <li>使用Route Reflector减少Peer数量</li>
+                        <li>监控BGP会话状态，及时发现异常</li>
+                        <li>关闭不必要的Overlay封装</li>
+                        <li>配置合理MTU，防止分片</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-header">6. 故障排查</button>
+                <div class="accordion-body">
+                    <ul>
+                        <li>检查BGP会话：<code>calicoctl node status</code></li>
+                        <li>查看路由表：<code>ip route</code>、<code>birdc show route</code></li>
+                        <li>确认Pod网段是否正确通告</li>
+                        <li>排查BGP建立失败、路由不通、收敛慢等问题</li>
+                        <li>分析日志定位异常</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-header">7. 最佳实践</button>
+                <div class="accordion-body">
+                    <ol>
+                        <li>生产环境建议引入Route Reflector，避免全互联</li>
+                        <li>与网络团队协作，合理分配AS号与网段</li>
+                        <li>定期备份配置，开启BGP监控与告警</li>
+                        <li>结合Calico网络策略提升安全性</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-header">8. 相关资源</button>
+                <div class="accordion-body">
+                    <ul>
+                        <li><a href="https://docs.projectcalico.org/networking/bgp" target="_blank">Calico官方BGP文档</a></li>
+                        <li><a href="https://www.ipwithease.com/bgp-protocol-overview/" target="_blank">BGP协议原理</a></li>
+                        <li><a href="calico-ipinip.html">Calico IPinIP模式</a></li>
+                        <li><a href="calico-vxlan.html">Calico VXLAN模式</a></li>
+                        <li><a href="calico-wireguard.html">Calico WireGuard模式</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

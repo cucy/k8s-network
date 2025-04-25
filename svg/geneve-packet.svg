@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="400" xmlns="http://www.w3.org/2000/svg">
+    <!-- 背景 -->
+    <rect width="800" height="400" fill="#f8f9fa" />
+    
+    <!-- 标题 -->
+    <text x="400" y="30" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#333">Geneve 数据包结构</text>
+    
+    <!-- 外部以太网头 -->
+    <rect x="100" y="60" width="600" height="40" rx="5" fill="#4472C4" />
+    <text x="400" y="85" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">外部以太网头 (Outer Ethernet Header)</text>
+    
+    <!-- 外部IP头 -->
+    <rect x="100" y="110" width="600" height="40" rx="5" fill="#5B9BD5" />
+    <text x="400" y="135" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">外部IP头 (Outer IP Header)</text>
+    
+    <!-- 外部UDP头 -->
+    <rect x="100" y="160" width="600" height="40" rx="5" fill="#70AD47" />
+    <text x="400" y="185" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">外部UDP头 (Outer UDP Header) - 端口6081</text>
+    
+    <!-- Geneve头 -->
+    <rect x="100" y="210" width="600" height="60" rx="5" fill="#ED7D31" />
+    <text x="400" y="235" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">Geneve头 (Geneve Header)</text>
+    <text x="400" y="255" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="white">版本 | 选项长度 | 保留 | 协议类型 | VNI | 保留</text>
+    
+    <!-- Geneve选项 (TLV) -->
+    <rect x="100" y="280" width="600" height="40" rx="5" fill="#FFC000" />
+    <text x="400" y="305" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">Geneve选项 (TLV - Type, Length, Value)</text>
+    
+    <!-- 内部以太网帧 -->
+    <rect x="100" y="330" width="600" height="40" rx="5" fill="#A5A5A5" />
+    <text x="400" y="355" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">原始数据包 (Original Packet)</text>
+    
+    <!-- 箭头和标签 -->
+    <line x1="50" y1="80" x2="50" y2="350" stroke="#333" stroke-width="2" />
+    <polygon points="50,350 45,340 55,340" fill="#333" />
+    <text x="35" y="215" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333" transform="rotate(-90, 35, 215)">封装过程</text>
+    
+    <!-- 特性说明 -->
+    <text x="720" y="100" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#333">可扩展性</text>
+    <line x1="725" y1="100" x2="760" y2="100" stroke="#333" stroke-width="2" />
+    <line x1="760" y1="100" x2="760" y2="300" stroke="#333" stroke-width="2" />
+    <line x1="760" y1="300" x2="725" y2="300" stroke="#333" stroke-width="2" />
+    
+    <text x="720" y="250" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#333">元数据传输</text>
+    <line x1="725" y1="250" x2="750" y2="250" stroke="#333" stroke-width="2" />
+    <line x1="750" y1="250" x2="750" y2="300" stroke="#333" stroke-width="2" />
+</svg>

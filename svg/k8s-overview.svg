@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="500" viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .node {
+      fill: #fff;
+      stroke: #326ce5;
+      stroke-width: 2;
+    }
+    .pod {
+      fill: #d4e5ff;
+      stroke: #326ce5;
+      stroke-width: 1.5;
+    }
+    .container {
+      fill: #b3d1ff;
+      stroke: #326ce5;
+      stroke-width: 1;
+    }
+    .service {
+      fill: #ffe0b3;
+      stroke: #ff9900;
+      stroke-width: 1.5;
+    }
+    .ingress {
+      fill: #d9f2d9;
+      stroke: #47d147;
+      stroke-width: 1.5;
+    }
+    .network {
+      fill: none;
+      stroke: #999;
+      stroke-width: 1.5;
+      stroke-dasharray: 5,5;
+    }
+    .arrow {
+      fill: none;
+      stroke: #666;
+      stroke-width: 1.5;
+      marker-end: url(#arrowhead);
+    }
+    .label {
+      font-family: 'Arial', sans-serif;
+      font-size: 14px;
+      text-anchor: middle;
+    }
+    .title {
+      font-family: 'Arial', sans-serif;
+      font-size: 18px;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .highlight {
+      animation: pulse 1.5s infinite alternate;
+    }
+    @keyframes pulse {
+      from { opacity: 1; }
+      to { opacity: 0.6; }
+    }
+    .animate {
+      animation: movePacket 3s ease-in-out;
+    }
+    @keyframes movePacket {
+      0% { transform: translateX(0) translateY(0); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateX(300px) translateY(0); opacity: 0; }
+    }
+  </style>
+  
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+    </marker>
+  </defs>
+  
+  <rect width="100%" height="100%" fill="#f8f9fa" />
+  
+  <text x="400" y="40" class="title">Kubernetes 网络架构概览</text>
+  
+  <!-- 外部网络 -->
+  <rect x="50" y="80" width="700" height="380" rx="10" ry="10" class="network" />
+  <text x="400" y="100" class="label">集群网络</text>
+  
+  <!-- 节点 1 -->
+  <rect x="100" y="130" width="280" height="300" rx="5" ry="5" class="node" id="node1" />
+  <text x="240" y="150" class="label">Worker 节点 1</text>
+  
+  <!-- 节点 1 上的 Pod -->
+  <rect x="120" y="170" width="110" height="100" rx="5" ry="5" class="pod" id="pod1" />
+  <text x="175" y="190" class="label">Pod 1</text>
+  <rect x="130" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="150" y="230" class="label" style="font-size: 12px;">容器</text>
+  <rect x="180" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="200" y="230" class="label" style="font-size: 12px;">容器</text>
+  
+  <rect x="120" y="280" width="110" height="100" rx="5" ry="5" class="pod" id="pod2" />
+  <text x="175" y="300" class="label">Pod 2</text>
+  <rect x="130" y="310" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="150" y="340" class="label" style="font-size: 12px;">容器</text>
+  <rect x="180" y="310" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="200" y="340" class="label" style="font-size: 12px;">容器</text>
+  
+  <!-- 节点 1 上的 Service -->
+  <rect x="240" y="200" width="120" height="60" rx="5" ry="5" class="service" id="service1" />
+  <text x="300" y="230" class="label">Service</text>
+  
+  <!-- 节点 2 -->
+  <rect x="420" y="130" width="280" height="300" rx="5" ry="5" class="node" id="node2" />
+  <text x="560" y="150" class="label">Worker 节点 2</text>
+  
+  <!-- 节点 2 上的 Pod -->
+  <rect x="440" y="170" width="110" height="100" rx="5" ry="5" class="pod" id="pod3" />
+  <text x="495" y="190" class="label">Pod 3</text>
+  <rect x="450" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="470" y="230" class="label" style="font-size: 12px;">容器</text>
+  <rect x="500" y="200" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="520" y="230" class="label" style="font-size: 12px;">容器</text>
+  
+  <rect x="440" y="280" width="110" height="100" rx="5" ry="5" class="pod" id="pod4" />
+  <text x="495" y="300" class="label">Pod 4</text>
+  <rect x="450" y="310" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="470" y="340" class="label" style="font-size: 12px;">容器</text>
+  <rect x="500" y="310" width="40" height="60" rx="3" ry="3" class="container" />
+  <text x="520" y="340" class="label" style="font-size: 12px;">容器</text>
+  
+  <!-- 节点 2 上的 Service -->
+  <rect x="560" y="200" width="120" height="60" rx="5" ry="5" class="service" id="service2" />
+  <text x="620" y="230" class="label">Service</text>
+  
+  <!-- Ingress -->
+  <rect x="350" y="80" width="100" height="40" rx="5" ry="5" class="ingress" id="ingress" />
+  <text x="400" y="105" class="label">Ingress</text>
+  
+  <!-- 连接线 -->
+  <path d="M 400 120 L 400 170" class="arrow" id="path1" />
+  <path d="M 300 260 L 300 280 L 350 280 L 400 280 L 450 280 L 500 280 L 560 260" class="arrow" id="path2" />
+  <path d="M 175 270 L 175 280" class="arrow" id="path3" />
+  <path d="M 495 270 L 495 280" class="arrow" id="path4" />
+  
+  <!-- 数据包 -->
+  <circle cx="400" cy="140" r="5" fill="#ff6666" id="packet" style="opacity: 0;" />
+  
+  <!-- 图例 -->
+  <rect x="100" y="440" width="20" height="20" class="node" />
+  <text x="130" y="455" class="label" style="text-anchor: start;">节点</text>
+  
+  <rect x="200" y="440" width="20" height="20" class="pod" />
+  <text x="230" y="455" class="label" style="text-anchor: start;">Pod</text>
+  
+  <rect x="300" y="440" width="20" height="20" class="container" />
+  <text x="330" y="455" class="label" style="text-anchor: start;">容器</text>
+  
+  <rect x="400" y="440" width="20" height="20" class="service" />
+  <text x="430" y="455" class="label" style="text-anchor: start;">Service</text>
+  
+  <rect x="500" y="440" width="20" height="20" class="ingress" />
+  <text x="530" y="455" class="label" style="text-anchor: start;">Ingress</text>
+  
+  <line x1="600" y1="450" x2="650" y2="450" class="arrow" />
+  <text x="680" y="455" class="label" style="text-anchor: start;">网络流量</text>
+</svg>

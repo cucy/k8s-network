@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>策略路由配置 - Veth 网络指南</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>策略路由配置</h1>
+        <nav>
+            <ul>
+                <li><a href="index.html">首页</a></li>
+                <li><a href="veth-basics.html">Veth 基础</a></li>
+                <li><a href="veth-topologies.html">网络拓扑</a></li>
+                <li><a href="veth-routing.html">路由配置</a></li>
+                <li><a href="veth-security.html">网络安全</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="container">
+        <aside>
+            <h2>Veth 对系列文章</h2>
+            <ul>
+                <li><a href="veth-basics.html">Veth 基础知识</a></li>
+                <li><a href="veth-bridge-topology.html">Bridge 网络拓扑</a></li>
+                <li><a href="veth-ring-topology.html">Ring 网络拓扑</a></li>
+                <li><a href="veth-hybrid-topology.html">混合网络拓扑</a></li>
+                <li><a href="veth-routing-advanced.html">高级路由配置概述</a></li>
+                <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                <li><a href="veth-routing-static-basic.html">基本静态路由</a></li>
+                <li><a href="veth-routing-static-advanced.html">高级静态路由</a></li>
+                <li><a href="veth-routing-static-multipath.html">多路径静态路由</a></li>
+                <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf.html">OSPF 路由配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf-basic.html">OSPF 基础配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf-advanced.html">OSPF 高级配置</a></li>
+                <li><a href="veth-routing-dynamic-rip.html">RIP 路由配置</a></li>
+                <li><a href="veth-routing-dynamic-bgp.html">BGP 路由配置</a></li>
+                <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                <li><a href="veth-security.html">网络隔离与安全</a></li>
+            </ul>
+        </aside>
+
+        <main>
+            <section id="introduction">
+                <h2>策略路由介绍</h2>
+                <p>传统的 IP 路由基于目标 IP 地址做出转发决策。而策略路由（Policy-Based Routing，PBR）允许网络管理员根据源 IP 地址、协议类型、数据包大小等多种条件来控制数据包的转发路径，提供了更灵活的路由控制机制。</p>
+                <p>策略路由的主要应用场景包括：</p>
+                <ul>
+                    <li>基于源地址的路由选择</li>
+                    <li>负载均衡</li>
+                    <li>服务质量（QoS）保障</li>
+                    <li>流量工程</li>
+                    <li>多出口网络管理</li>
+                </ul>
+                <p>在 Linux 中，策略路由通过 IP 规则（IP Rule）和多路由表（Multiple Routing Tables）来实现。本文将介绍如何在 Linux 网络命名空间和 veth 对环境中配置和使用策略路由。</p>
+            </section>
+
+            <section id="policy-routing-concepts">
+                <h2>策略路由基本概念</h2>
+                <p>在 Linux 中，策略路由由两个主要组件组成：</p>
+
+                <h3>路由策略数据库（RPDB）</h3>
+                <p>路由策略数据库包含一系列规则，每条规则包含一个选择器和一个动作。选择器用于匹配数据包，动作指定匹配的数据包应该使用哪个路由表。</p>
+
+                <h3>多路由表</h3>
+                <p>Linux 支持多个路由表，每个表都有自己的路由条目。默认情况下，Linux 使用主路由表（表 ID 为 254）进行路由决策。</p>
+
+                <p>Linux 预定义了以下路由表：</p>
+                <ul>
+                    <li><strong>本地表（Local Table，ID 255）</strong>：包含本地和广播地址的路由</li>
+                    <li><strong>主表（Main Table，ID 254）</strong>：默认的路由表</li>
+                    <li><strong>默认表（Default Table，ID 253）</strong>：后处理规则</li>
+                    <li><strong>未指定表（Unspec Table，ID 0）</strong>：保留</li>
+                </ul>
+
+                <p>用户可以创建自定义路由表，表 ID 范围为 1-252。</p>
+
+                <h3>路由决策过程</h3>
+                <p>当 Linux 内核需要为数据包做出路由决策时，它会按照以下步骤处理：</p>
+                <ol>
+                    <li>按优先级顺序检查 RPDB 中的规则</li>
+                    <li>对于匹配的规则，使用指定的路由表查找路由</li>
+                    <li>如果找到匹配的路由，使用该路由转发数据包</li>
+                    <li>如果没有找到匹配的路由，继续检查下一条规则</li>
+                    <li>如果所有规则都检查完毕仍未找到匹配的路由，丢弃数据包</li>
+                </ol>
+            </section>
+
+            <section id="policy-routing-commands">
+                <h2>策略路由命令</h2>
+                <p>在 Linux 中，策略路由主要通过 <code>ip rule</code> 和 <code>ip route</code> 命令来配置。</p>
+
+                <h3>IP 规则命令</h3>
+                <pre class="code-block">
+# 查看当前规则
+ip rule list
+
+# 添加规则
+ip rule add from 192.168.1.0/24 table 10
+ip rule add from 192.168.2.0/24 table 20
+
+# 删除规则
+ip rule del from 192.168.1.0/24 table 10
+
+# 添加带优先级的规则
+ip rule add from 192.168.1.0/24 table 10 priority 100
+                </pre>
+
+                <h3>路由表命令</h3>
+                <pre class="code-block">
+# 查看指定路由表
+ip route list table 10
+
+# 添加路由到指定表
+ip route add default via 192.168.1.1 table 10
+ip route add 10.0.0.0/8 via 192.168.2.1 table 20
+
+# 删除指定表中的路由
+ip route del default table 10
+                </pre>
+
+                <h3>自定义路由表名称</h3>
+                <p>为了方便管理，可以为路由表指定名称。这些名称定义在 <code>/etc/iproute2/rt_tables</code> 文件中：</p>
+                <pre class="code-block">
+# 编辑 rt_tables 文件
+echo "10 custom1" >> /etc/iproute2/rt_tables
+echo "20 custom2" >> /etc/iproute2/rt_tables
+
+# 使用名称引用路由表
+ip rule add from 192.168.1.0/24 table custom1
+ip route add default via 192.168.1.1 table custom1
+                </pre>
+            </section>
+
+            <section id="basic-policy-routing">
+                <h2>基本策略路由配置</h2>
+                <p>我们将创建一个包含三个路由器的网络拓扑，并配置基于源地址的策略路由。</p>
+
+                <h3>网络拓扑</h3>
+                <pre class="code-block">
+                      +------------+
+                      |            |
+                      |  Router2   |
+                      |            |
+                      +------------+
+                           |
+                           | 10.0.12.0/24
+                           |
++------------+         +------------+         +------------+
+|            |         |            |         |            |
+|  Client1   +---------+  Router1   +---------+  Server1   |
+|            |         |            |         |            |
++------------+         +------------+         +------------+
+                           |
+                           | 10.0.13.0/24
+                           |
+                      +------------+
+                      |            |
+                      |  Router3   |
+                      |            |
+                      +------------+
+                </pre>
+
+                <p>在这个拓扑中，Router1 有两个出口（通过 Router2 和 Router3）。我们将配置策略路由，使来自 Client1 的流量通过 Router2 转发，而来自 Server1 的流量通过 Router3 转发。</p>
+
+                <h3>环境准备</h3>
+                <pre class="code-block">
+# 创建网络命名空间
+sudo ip netns add client1
+sudo ip netns add router1
+sudo ip netns add router2
+sudo ip netns add router3
+sudo ip netns add server1
+
+# 创建 veth 对
+sudo ip link add c1-r1 type veth peer name r1-c1
+sudo ip link add r1-r2 type veth peer name r2-r1
+sudo ip link add r1-r3 type veth peer name r3-r1
+sudo ip link add r1-s1 type veth peer name s1-r1
+
+# 将 veth 对分配给相应的命名空间
+sudo ip link set c1-r1 netns client1
+sudo ip link set r1-c1 netns router1
+sudo ip link set r1-r2 netns router1
+sudo ip link set r2-r1 netns router2
+sudo ip link set r1-r3 netns router1
+sudo ip link set r3-r1 netns router3
+sudo ip link set r1-s1 netns router1
+sudo ip link set s1-r1 netns server1
+
+# 配置 IP 地址
+sudo ip netns exec client1 ip addr add 10.0.1.2/24 dev c1-r1
+sudo ip netns exec router1 ip addr add 10.0.1.1/24 dev r1-c1
+sudo ip netns exec router1 ip addr add 10.0.12.1/24 dev r1-r2
+sudo ip netns exec router2 ip addr add 10.0.12.2/24 dev r2-r1
+sudo ip netns exec router1 ip addr add 10.0.13.1/24 dev r1-r3
+sudo ip netns exec router3 ip addr add 10.0.13.3/24 dev r3-r1
+sudo ip netns exec router1 ip addr add 10.0.2.1/24 dev r1-s1
+sudo ip netns exec server1 ip addr add 10.0.2.2/24 dev s1-r1
+
+# 启用接口
+sudo ip netns exec client1 ip link set c1-r1 up
+sudo ip netns exec client1 ip link set lo up
+sudo ip netns exec router1 ip link set r1-c1 up
+sudo ip netns exec router1 ip link set r1-r2 up
+sudo ip netns exec router1 ip link set r1-r3 up
+sudo ip netns exec router1 ip link set r1-s1 up
+sudo ip netns exec router1 ip link set lo up
+sudo ip netns exec router2 ip link set r2-r1 up
+sudo ip netns exec router2 ip link set lo up
+sudo ip netns exec router3 ip link set r3-r1 up
+sudo ip netns exec router3 ip link set lo up
+sudo ip netns exec server1 ip link set s1-r1 up
+sudo ip netns exec server1 ip link set lo up
+
+# 启用 IP 转发
+sudo ip netns exec router1 sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec router2 sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec router3 sysctl -w net.ipv4.ip_forward=1
+
+# 添加默认路由
+sudo ip netns exec client1 ip route add default via 10.0.1.1
+sudo ip netns exec server1 ip route add default via 10.0.2.1
+
+# 添加互联网模拟
+sudo ip netns exec router2 ip link add lo2 type dummy
+sudo ip netns exec router2 ip link set lo2 up
+sudo ip netns exec router2 ip addr add 8.8.8.8/32 dev lo2
+
+sudo ip netns exec router3 ip link add lo3 type dummy
+sudo ip netns exec router3 ip link set lo3 up
+sudo ip netns exec router3 ip addr add 1.1.1.1/32 dev lo3
+
+# 添加到互联网的路由
+sudo ip netns exec router2 ip route add 10.0.1.0/24 via 10.0.12.1
+sudo ip netns exec router2 ip route add 10.0.2.0/24 via 10.0.12.1
+sudo ip netns exec router3 ip route add 10.0.1.0/24 via 10.0.13.1
+sudo ip netns exec router3 ip route add 10.0.2.0/24 via 10.0.13.1
+                </pre>
+
+                <h3>配置策略路由</h3>
+                <p>现在，我们将在 Router1 上配置策略路由，使来自 Client1 的流量通过 Router2 转发，而来自 Server1 的流量通过 Router3 转发：</p>
+                <pre class="code-block">
+# 创建自定义路由表
+sudo ip netns exec router1 bash -c 'echo "1 client" >> /etc/iproute2/rt_tables'
+sudo ip netns exec router1 bash -c 'echo "2 server" >> /etc/iproute2/rt_tables'
+
+# 添加路由到自定义表
+sudo ip netns exec router1 ip route add default via 10.0.12.2 table client
+sudo ip netns exec router1 ip route add 10.0.1.0/24 dev r1-c1 table client
+sudo ip netns exec router1 ip route add 10.0.2.0/24 dev r1-s1 table client
+
+sudo ip netns exec router1 ip route add default via 10.0.13.3 table server
+sudo ip netns exec router1 ip route add 10.0.1.0/24 dev r1-c1 table server
+sudo ip netns exec router1 ip route add 10.0.2.0/24 dev r1-s1 table server
+
+# 添加策略规则
+sudo ip netns exec router1 ip rule add from 10.0.1.0/24 table client
+sudo ip netns exec router1 ip rule add from 10.0.2.0/24 table server
+
+# 清除路由缓存
+sudo ip netns exec router1 ip route flush cache
+                </pre>
+
+                <h3>测试策略路由</h3>
+                <p>现在，我们可以测试策略路由是否正常工作：</p>
+                <pre class="code-block">
+# 从 Client1 访问互联网（应该通过 Router2）
+sudo ip netns exec client1 traceroute 8.8.8.8
+
+# 从 Server1 访问互联网（应该通过 Router3）
+sudo ip netns exec server1 traceroute 1.1.1.1
+                </pre>
+
+                <p>我们还可以使用 <code>ip route get</code> 命令来验证路由决策：</p>
+                <pre class="code-block">
+# 验证从 Client1 到互联网的路由
+sudo ip netns exec router1 ip route get 8.8.8.8 from 10.0.1.2
+
+# 验证从 Server1 到互联网的路由
+sudo ip netns exec router1 ip route get 1.1.1.1 from 10.0.2.2
+                </pre>
+            </section>
+
+            <section id="advanced-policy-routing">
+                <h2>高级策略路由配置</h2>
+                <p>除了基于源地址的策略路由外，Linux 还支持基于多种条件的策略路由。</p>
+
+                <h3>基于目标地址的策略路由</h3>
+                <pre class="code-block">
+# 添加基于目标地址的规则
+sudo ip netns exec router1 ip rule add to 8.8.8.8/32 table client
+sudo ip netns exec router1 ip rule add to 1.1.1.1/32 table server
+                </pre>
+
+                <h3>基于入接口的策略路由</h3>
+                <pre class="code-block">
+# 添加基于入接口的规则
+sudo ip netns exec router1 ip rule add iif r1-c1 table client
+sudo ip netns exec router1 ip rule add iif r1-s1 table server
+                </pre>
+
+                <h3>基于 TOS 的策略路由</h3>
+                <pre class="code-block">
+# 添加基于 TOS 的规则
+sudo ip netns exec router1 ip rule add tos 0x10 table client
+sudo ip netns exec router1 ip rule add tos 0x08 table server
+                </pre>
+
+                <h3>基于 fwmark 的策略路由</h3>
+                <p>结合 iptables 和 fwmark，可以实现更复杂的策略路由：</p>
+                <pre class="code-block">
+# 使用 iptables 标记数据包
+sudo ip netns exec router1 iptables -t mangle -A PREROUTING -p tcp --dport 80 -j MARK --set-mark 1
+sudo ip netns exec router1 iptables -t mangle -A PREROUTING -p tcp --dport 443 -j MARK --set-mark 2
+
+# 添加基于 fwmark 的规则
+sudo ip netns exec router1 ip rule add fwmark 1 table client
+sudo ip netns exec router1 ip rule add fwmark 2 table server
+                </pre>
+
+                <h3>负载均衡</h3>
+                <p>策略路由结合多路径路由可以实现负载均衡：</p>
+                <pre class="code-block">
+# 创建负载均衡路由表
+sudo ip netns exec router1 bash -c 'echo "3 balance" >> /etc/iproute2/rt_tables'
+
+# 添加多路径路由
+sudo ip netns exec router1 ip route add default scope global table balance nexthop via 10.0.12.2 weight 1 nexthop via 10.0.13.3 weight 1
+
+# 添加规则
+sudo ip netns exec router1 ip rule add from 10.0.1.0/24 table balance
+                </pre>
+
+                <h3>源地址转换</h3>
+                <p>结合 NAT，可以实现更复杂的网络配置：</p>
+                <pre class="code-block">
+# 为从 Client1 发出的流量配置 SNAT
+sudo ip netns exec router1 iptables -t nat -A POSTROUTING -s 10.0.1.0/24 -o r1-r2 -j SNAT --to-source 10.0.12.1
+
+# 为从 Server1 发出的流量配置 SNAT
+sudo ip netns exec router1 iptables -t nat -A POSTROUTING -s 10.0.2.0/24 -o r1-r3 -j SNAT --to-source 10.0.13.1
+                </pre>
+            </section>
+
+            <section id="policy-routing-troubleshooting">
+                <h2>策略路由故障排除</h2>
+                <p>配置策略路由时可能会遇到各种问题。以下是一些常见问题及其解决方法：</p>
+
+                <h3>规则顺序问题</h3>
+                <p>规则按优先级顺序处理。如果规则的优先级不正确，可能导致意外的路由行为：</p>
+                <pre class="code-block">
+# 查看规则优先级
+sudo ip netns exec router1 ip rule list
+
+# 删除规则并重新添加，指定正确的优先级
+sudo ip netns exec router1 ip rule del from 10.0.1.0/24 table client
+sudo ip netns exec router1 ip rule add from 10.0.1.0/24 table client priority 100
+                </pre>
+
+                <h3>路由表内容问题</h3>
+                <p>确保自定义路由表包含所有必要的路由：</p>
+                <pre class="code-block">
+# 查看路由表内容
+sudo ip netns exec router1 ip route list table client
+sudo ip netns exec router1 ip route list table server
+
+# 添加缺失的路由
+sudo ip netns exec router1 ip route add 10.0.1.0/24 dev r1-c1 table client
+                </pre>
+
+                <h3>路由缓存问题</h3>
+                <p>修改路由规则后，需要刷新路由缓存：</p>
+                <pre class="code-block">
+sudo ip netns exec router1 ip route flush cache
+                </pre>
+
+                <h3>调试工具</h3>
+                <p>使用以下工具来调试策略路由问题：</p>
+                <pre class="code-block">
+# 使用 ip route get 查看路由决策
+sudo ip netns exec router1 ip route get 8.8.8.8 from 10.0.1.2
+
+# 使用 tcpdump 监控流量
+sudo ip netns exec router1 tcpdump -i r1-r2 -n
+sudo ip netns exec router1 tcpdump -i r1-r3 -n
+
+# 使用 traceroute 跟踪路径
+sudo ip netns exec client1 traceroute -n 8.8.8.8
+                </pre>
+            </section>
+
+            <section id="conclusion">
+                <h2>总结</h2>
+                <p>策略路由是一种强大的网络功能，它允许网络管理员基于多种条件控制数据包的转发路径。在本文中，我们介绍了 Linux 中策略路由的基本概念、配置方法和高级选项，并通过实际示例演示了如何在 veth 对和网络命名空间环境中配置策略路由。</p>
+                <p>策略路由的主要优点包括：</p>
+                <ul>
+                    <li>灵活的路由控制，不仅限于目标地址</li>
+                    <li>支持多种条件的路由决策</li>
+                    <li>与 Linux 网络堆栈的其他部分（如 iptables）良好集成</li>
+                    <li>可以实现复杂的网络功能，如负载均衡、流量工程等</li>
+                </ul>
+                <p>通过掌握策略路由的配置和使用，我们可以更好地控制网络流量，实现更复杂的网络功能。</p>
+            </section>
+
+            <div class="navigation-buttons">
+                <a href="veth-routing-dynamic-bgp.html" class="prev-button">上一页：BGP 路由配置</a>
+                <a href="veth-security.html" class="next-button">下一页：网络隔离与安全</a>
+            </div>
+        </main>
+    </div>
+
+    <footer>
+        <p>&copy; 2023 Veth 网络指南. 保留所有权利.</p>
+    </footer>
+</body>
+</html>

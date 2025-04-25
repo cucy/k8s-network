@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geneve技术详解 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="overlay-networks.html">Overlay 网络</a></li>
+                    <li><a href="geneve-technology.html" class="active">Geneve 技术</a></li>
+                    <li><a href="wireguard-overlay.html">WireGuard</a></li>
+                    <li><a href="network-troubleshooting.html">网络故障排查</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section>
+            <h2>Geneve简介</h2>
+            <p>Geneve（Generic Network Virtualization Encapsulation）是一种新一代的网络虚拟化封装协议，由IETF在RFC 8926中标准化。它旨在解决VXLAN和其他早期Overlay协议的局限性，提供更灵活、更可扩展的网络虚拟化解决方案。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/geneve-packet.svg" class="diagram">
+                    Geneve数据包结构
+                </object>
+            </div>
+            <p class="diagram-caption">图1: Geneve数据包结构</p>
+            
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>可扩展性</h3>
+                    <p>Geneve的核心设计理念是提供一个灵活的框架，能够适应未来网络虚拟化的各种需求。它通过TLV（Type-Length-Value）格式的选项字段实现了高度的可扩展性。</p>
+                </div>
+                <div class="feature">
+                    <h3>元数据传输</h3>
+                    <p>Geneve允许在隧道封装中携带丰富的元数据，这些元数据可以用于高级网络功能，如服务质量（QoS）、安全策略、负载均衡等。</p>
+                </div>
+                <div class="feature">
+                    <h3>向后兼容</h3>
+                    <p>Geneve设计时考虑了与现有网络基础设施的兼容性，使用UDP作为传输协议（默认端口6081），便于在现有网络中部署。</p>
+                </div>
+                <div class="feature">
+                    <h3>硬件加速</h3>
+                    <p>尽管Geneve比VXLAN更复杂，但现代网络硬件已开始支持Geneve的硬件卸载，提供接近裸机的性能。</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Geneve与VXLAN的比较</h2>
+            <p>Geneve和VXLAN都是流行的Overlay网络技术，但它们在设计理念和功能特性上有一些关键区别。</p>
+            
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>特性</th>
+                            <th>Geneve</th>
+                            <th>VXLAN</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>标准化</td>
+                            <td>RFC 8926</td>
+                            <td>RFC 7348</td>
+                        </tr>
+                        <tr>
+                            <td>默认UDP端口</td>
+                            <td>6081</td>
+                            <td>4789</td>
+                        </tr>
+                        <tr>
+                            <td>网络标识符</td>
+                            <td>24位VNI</td>
+                            <td>24位VNI</td>
+                        </tr>
+                        <tr>
+                            <td>可扩展性</td>
+                            <td>支持TLV格式的选项</td>
+                            <td>有限，固定格式</td>
+                        </tr>
+                        <tr>
+                            <td>元数据支持</td>
+                            <td>丰富，可扩展</td>
+                            <td>有限</td>
+                        </tr>
+                        <tr>
+                            <td>封装开销</td>
+                            <td>基本头部50字节，可变</td>
+                            <td>固定50字节</td>
+                        </tr>
+                        <tr>
+                            <td>硬件支持</td>
+                            <td>新型网卡开始支持</td>
+                            <td>广泛支持</td>
+                        </tr>
+                        <tr>
+                            <td>使用场景</td>
+                            <td>需要高级网络功能的环境</td>
+                            <td>基本网络虚拟化需求</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="info-box">
+                <h3>为什么选择Geneve？</h3>
+                <p>Geneve的主要优势在于其可扩展性和对未来网络功能的支持。如果您的环境需要以下特性，Geneve可能是更好的选择：</p>
+                <ul>
+                    <li>需要在隧道中传输丰富的元数据</li>
+                    <li>需要支持高级网络功能，如网络服务链（Service Chaining）</li>
+                    <li>需要与SDN控制器深度集成</li>
+                    <li>计划长期使用，需要适应未来网络技术的发展</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>Geneve在Kubernetes中的应用</h2>
+            <p>Geneve正在逐渐被Kubernetes生态系统中的网络解决方案所采用，特别是那些需要高级网络功能的CNI插件。</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">Antrea</div>
+                    <div class="accordion-content">
+                        <p>Antrea是由VMware开发的CNI插件，它使用Open vSwitch (OVS)实现Kubernetes网络，并支持Geneve作为其Overlay网络协议。</p>
+                        <h4>Antrea中的Geneve配置</h4>
+                        <div class="code-block">
+# Antrea配置示例（ConfigMap中）
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: antrea-config
+  namespace: kube-system
+data:
+  antrea-agent.conf: |
+    tunnelType: geneve
+    # Geneve端口配置
+    genevePort: 6081
+                        </div>
+                        <p>Antrea利用Geneve的可扩展性来实现高级网络功能，如网络策略、流量控制和可观测性。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">OVN-Kubernetes</div>
+                    <div class="accordion-content">
+                        <p>OVN-Kubernetes是基于Open Virtual Network (OVN)的CNI插件，它使用Geneve作为默认的Overlay协议。</p>
+                        <h4>OVN-Kubernetes中的Geneve使用</h4>
+                        <div class="code-block">
+# 查看OVN-Kubernetes中的Geneve隧道
+kubectl exec -n kube-system ovnkube-node-xxxx -- ovs-vsctl show | grep geneve
+
+# 检查Geneve端点
+kubectl exec -n kube-system ovnkube-node-xxxx -- ovs-ofctl dump-flows br-int | grep geneve
+                        </div>
+                        <p>OVN-Kubernetes利用Geneve的元数据能力来实现复杂的网络拓扑和策略。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">其他支持Geneve的CNI插件</div>
+                    <div class="accordion-content">
+                        <p>除了Antrea和OVN-Kubernetes外，其他一些CNI插件也开始支持或计划支持Geneve：</p>
+                        <ul>
+                            <li><strong>Cilium</strong>: 基于eBPF的CNI插件，正在增加对Geneve的支持</li>
+                            <li><strong>NSX-T Container Plugin</strong>: VMware的企业级容器网络解决方案，使用Geneve作为其Overlay协议</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Geneve实践</h2>
+            <p>本节提供了一些实用的命令和实验，帮助您了解和调试Geneve网络。</p>
+            
+            <div class="experiment-card">
+                <h3>实验1：观察Geneve封装</h3>
+                <p>本实验将帮助您直观地观察Geneve封装和解封装过程。</p>
+                <div class="code-block">
+# 在使用Geneve的Kubernetes集群中
+# 1. 创建两个测试Pod
+kubectl run pod1 --image=nicolaka/netshoot
+kubectl run pod2 --image=nicolaka/netshoot
+
+# 2. 获取Pod的IP地址
+POD1_IP=$(kubectl get pod pod1 -o jsonpath='{.status.podIP}')
+POD2_IP=$(kubectl get pod pod2 -o jsonpath='{.status.podIP}')
+
+# 3. 在节点上捕获Geneve流量
+sudo tcpdump -i any udp port 6081 -n -v
+
+# 4. 在另一个终端中，测试Pod间通信
+kubectl exec -it pod1 -- ping -c 5 $POD2_IP
+
+# 5. 分析捕获的数据包
+# 您应该能看到Geneve封装的数据包
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验2：检查Geneve接口和配置</h3>
+                <p>本实验将帮助您了解系统中的Geneve接口和配置。</p>
+                <div class="code-block">
+# 1. 查看Geneve接口
+ip -d link show type geneve
+
+# 2. 如果使用OVS，查看OVS中的Geneve配置
+ovs-vsctl show | grep geneve
+
+# 3. 查看Geneve隧道的流表
+ovs-ofctl dump-flows br-int | grep geneve
+
+# 4. 检查Geneve端口的UDP连接
+netstat -anup | grep 6081
+                </div>
+            </div>
+            
+            <div class="tips-container">
+                <div class="tip">
+                    <h3>Geneve性能优化</h3>
+                    <p>要获得最佳的Geneve性能，可以考虑以下优化：</p>
+                    <ul>
+                        <li>使用支持Geneve硬件卸载的网卡</li>
+                        <li>正确配置MTU（通常比物理网络MTU小50字节以上）</li>
+                        <li>启用网卡的Geneve卸载功能</li>
+                        <li>优化Linux内核参数</li>
+                    </ul>
+                    <div class="code-block">
+# 检查网卡是否支持Geneve卸载
+ethtool -k eth0 | grep geneve
+
+# 启用Geneve卸载（如果支持）
+ethtool -K eth0 tx-udp_tnl-segmentation on
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>Geneve故障排查</h3>
+                    <p>排查Geneve网络问题时，可以检查以下几点：</p>
+                    <ul>
+                        <li>确保UDP端口6081未被防火墙阻断</li>
+                        <li>检查Geneve接口的MTU设置</li>
+                        <li>验证OVS配置和流表</li>
+                        <li>使用tcpdump捕获并分析Geneve流量</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Geneve的未来发展</h2>
+            <p>作为一种相对较新的技术，Geneve正在不断发展，并有望在未来的网络虚拟化中扮演更重要的角色。</p>
+            
+            <div class="trends-container">
+                <div class="trend">
+                    <h3>硬件支持增强</h3>
+                    <p>随着新一代网络硬件的推出，对Geneve的硬件加速支持将变得更加普遍，这将显著提高Geneve网络的性能。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>与eBPF的结合</h3>
+                    <p>Geneve与eBPF技术的结合将带来更强大的网络编程能力，允许在数据平面实现复杂的网络功能。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>多集群网络</h3>
+                    <p>Geneve的可扩展性使其成为跨集群和混合云网络连接的理想选择，未来可能会看到更多这方面的应用。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>网络服务网格</h3>
+                    <p>Geneve的元数据能力可以支持更复杂的服务网格实现，提供端到端的可观测性和安全性。</p>
+                </div>
+            </div>
+            
+            <div class="resources">
+                <h3>深入学习资源</h3>
+                <div class="resource">
+                    <h4>规范文档</h4>
+                    <ul>
+                        <li><a href="https://datatracker.ietf.org/doc/html/rfc8926" target="_blank">RFC 8926: Geneve Protocol</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resource">
+                    <h4>CNI插件文档</h4>
+                    <ul>
+                        <li><a href="https://antrea.io/docs/" target="_blank">Antrea文档</a></li>
+                        <li><a href="https://github.com/ovn-org/ovn-kubernetes" target="_blank">OVN-Kubernetes</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resource">
+                    <h4>相关技术</h4>
+                    <ul>
+                        <li><a href="https://www.openvswitch.org/" target="_blank">Open vSwitch</a></li>
+                        <li><a href="https://www.ovn.org/" target="_blank">Open Virtual Network (OVN)</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="related-topics">
+            <h2>相关主题</h2>
+            <div class="topic-cards">
+                <a href="overlay-networks.html" class="topic-card">
+                    <h3>Overlay网络概述</h3>
+                    <p>了解Kubernetes中Overlay网络的基本概念和常见实现</p>
+                </a>
+                <a href="network-bridges.html" class="topic-card">
+                    <h3>网络桥接</h3>
+                    <p>探索网络桥接在Kubernetes网络中的作用</p>
+                </a>
+                <a href="pod-network.html" class="topic-card">
+                    <h3>Pod网络</h3>
+                    <p>Kubernetes Pod网络的基础知识</p>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Kubernetes网络学习指南 | <a href="index.html">首页</a></p>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

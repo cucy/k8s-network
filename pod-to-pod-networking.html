@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pod 间通信 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Pod 间通信</h2>
+            <p>在 Kubernetes 中，Pod 间通信是网络模型的核心部分。本页将详细介绍同一节点上不同 Pod 之间的通信机制，以及实现这种通信的底层技术。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/pod-to-pod-network.svg" class="diagram">
+                    Pod 间通信示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 间通信基本原理</h2>
+            <p>Kubernetes 的网络模型基于以下几个关键原则：</p>
+            <ul>
+                <li>每个 Pod 都有自己的 IP 地址</li>
+                <li>Pod 可以使用该 IP 地址与集群中的任何其他 Pod 通信</li>
+                <li>Pod 间通信不需要 NAT</li>
+                <li>节点上的代理（如 kubelet 或 kube-proxy）可以与该节点上的所有 Pod 通信</li>
+            </ul>
+            
+            <p>在同一节点上的 Pod 间通信是最简单的情况，通常通过以下组件实现：</p>
+            <ul>
+                <li><strong>虚拟以太网设备对（veth pair）</strong>：连接 Pod 网络命名空间和主机网络命名空间</li>
+                <li><strong>Linux 网桥</strong>：在主机上转发 Pod 之间的流量</li>
+                <li><strong>路由表</strong>：指导数据包如何从一个 Pod 到达另一个 Pod</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>同节点 Pod 间通信详解</h2>
+            
+            <div class="experiment-card">
+                <h3>通信流程</h3>
+                <p>当同一节点上的 Pod A 需要与 Pod B 通信时，数据包的流动路径如下：</p>
+                <ol>
+                    <li>数据包从 Pod A 的网络命名空间中的 eth0 接口发出</li>
+                    <li>数据包通过 veth pair 到达主机网络命名空间</li>
+                    <li>数据包到达主机上的网桥（如 cbr0、cni0 或 docker0）</li>
+                    <li>网桥根据目标 MAC 地址将数据包转发到正确的 veth 接口</li>
+                    <li>数据包通过 veth pair 到达 Pod B 的网络命名空间</li>
+                    <li>数据包到达 Pod B 的 eth0 接口，并被传递到应用程序</li>
+                </ol>
+                <p>这个过程是标准的二层网络转发，不需要 NAT 或复杂的路由。</p>
+            </div>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">veth pair</div>
+                    <div class="tab">网桥</div>
+                    <div class="tab">ARP 和 MAC 地址</div>
+                    <div class="tab">路由表</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>虚拟以太网设备对（veth pair）</h3>
+                        <p>veth pair 是 Linux 网络虚拟化的基础组件，它创建了一对虚拟网络接口，这对接口的特点是：</p>
+                        <ul>
+                            <li>一端连接到容器（Pod）的网络命名空间</li>
+                            <li>另一端连接到主机的网络命名空间</li>
+                            <li>从一端发送的数据包会立即出现在另一端</li>
+                            <li>可以将它们想象为一根虚拟的"网线"，连接两个网络命名空间</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 查看主机上的 veth 接口
+ip link | grep veth
+
+# 查找特定 Pod 对应的 veth 接口
+POD_IP=$(kubectl get pod <pod-name> -o jsonpath='{.status.podIP}')
+bridge fdb | grep $POD_IP
+                        </div>
+                        
+                        <p>每个 Pod 都有一个 veth pair，一端在 Pod 内部显示为 eth0，另一端在主机上显示为类似 vethXXXXXX 的接口名称。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Linux 网桥</h3>
+                        <p>网桥是一个虚拟的二层网络设备，它学习 MAC 地址并相应地转发数据包。在 Kubernetes 中：</p>
+                        <ul>
+                            <li>每个节点通常有一个网桥（如 cbr0、cni0 或 docker0）</li>
+                            <li>所有 Pod 的 veth 接口都连接到这个网桥</li>
+                            <li>网桥维护一个 MAC 地址表，记录每个接口的 MAC 地址</li>
+                            <li>当数据包到达网桥时，它根据目标 MAC 地址决定转发到哪个接口</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 查看主机上的网桥
+ip link show type bridge
+
+# 查看网桥上连接的接口
+bridge link show
+
+# 查看网桥的 MAC 地址表
+bridge fdb show
+                        </div>
+                        
+                        <p>网桥的作用类似于物理网络中的交换机，它使得连接到它的所有 Pod 都位于同一个二层网络中。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>ARP 和 MAC 地址</h3>
+                        <p>当 Pod A 需要与 Pod B 通信时，它需要知道 Pod B 的 MAC 地址。这是通过 ARP（地址解析协议）实现的：</p>
+                        <ol>
+                            <li>Pod A 知道 Pod B 的 IP 地址（如 10.244.1.3）</li>
+                            <li>Pod A 发送 ARP 请求："谁拥有 IP 10.244.1.3？"</li>
+                            <li>这个 ARP 请求通过 veth pair 到达网桥</li>
+                            <li>网桥将 ARP 请求广播到所有连接的接口</li>
+                            <li>Pod B 收到 ARP 请求并回复自己的 MAC 地址</li>
+                            <li>Pod A 收到回复，缓存 Pod B 的 MAC 地址</li>
+                            <li>后续通信直接使用已知的 MAC 地址</li>
+                        </ol>
+                        
+                        <div class="code-block">
+# 查看 Pod 的 ARP 缓存
+kubectl exec -it <pod-name> -- ip neigh
+
+# 查看主机的 ARP 缓存
+ip neigh
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>路由表</h3>
+                        <p>虽然同一节点上的 Pod 通信主要依靠网桥进行二层转发，但路由表仍然起着重要作用：</p>
+                        <ul>
+                            <li>主机的路由表告诉内核如何处理目标为 Pod 网络的数据包</li>
+                            <li>通常会有一条路由规则，将 Pod 子网的流量导向网桥</li>
+                            <li>Pod 内部的路由表通常很简单，只有默认路由指向 eth0</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 查看主机的路由表
+ip route
+
+# 查看 Pod 的路由表
+kubectl exec -it <pod-name> -- ip route
+                        </div>
+                        
+                        <p>典型的主机路由表可能包含类似以下的条目：</p>
+                        <div class="code-block">
+10.244.1.0/24 dev cni0 proto kernel scope link src 10.244.1.1
+                        </div>
+                        <p>这表示目标为 10.244.1.0/24 网段的数据包应该发送到 cni0 接口（网桥）。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>不同 CNI 插件的实现差异</h2>
+            <p>虽然基本原理相似，但不同的 CNI 插件在实现同节点 Pod 间通信时可能有一些差异：</p>
+            
+            <div class="experiment-card">
+                <h3>Flannel</h3>
+                <p>Flannel 使用相对简单的方式实现同节点 Pod 通信：</p>
+                <ul>
+                    <li>创建一个名为 cni0 的网桥</li>
+                    <li>为每个 Pod 创建 veth pair，一端连接到 Pod，另一端连接到 cni0</li>
+                    <li>为 cni0 分配节点的 Pod 子网中的第一个 IP 地址（如 10.244.1.1）</li>
+                    <li>配置路由，使得 Pod 子网的流量通过 cni0</li>
+                </ul>
+                <p>Flannel 的同节点通信非常高效，因为它只涉及简单的二层转发。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Calico</h3>
+                <p>Calico 在同节点 Pod 通信中使用了不同的方法：</p>
+                <ul>
+                    <li>默认情况下，Calico 不使用网桥，而是使用路由表</li>
+                    <li>每个 Pod 的 veth 接口直接连接到主机网络命名空间</li>
+                    <li>为每个 Pod 添加一条主机路由，将 Pod IP 指向对应的 veth 接口</li>
+                    <li>使用 Linux 内核的转发功能而不是网桥进行数据包转发</li>
+                </ul>
+                <p>这种方法减少了一层网络设备（网桥），可能提供更好的性能，但配置更复杂。</p>
+                <p>注意：Calico 也可以配置为使用网桥模式。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Weave Net</h3>
+                <p>Weave Net 的同节点通信实现：</p>
+                <ul>
+                    <li>创建一个名为 weave 的网桥</li>
+                    <li>为每个 Pod 创建 veth pair，连接 Pod 和 weave 网桥</li>
+                    <li>使用自定义的数据路径优化性能</li>
+                    <li>支持加密通信，即使是同节点 Pod 之间</li>
+                </ul>
+                <p>Weave Net 的一个特点是它的"fast datapath"模式，可以提高同节点通信的性能。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 间通信的性能考虑</h2>
+            <p>同节点 Pod 间通信通常非常高效，但仍有一些性能因素需要考虑：</p>
+            
+            <h3>影响性能的因素</h3>
+            <ul>
+                <li><strong>MTU 设置</strong>：较大的 MTU 可以减少分片和提高吞吐量</li>
+                <li><strong>网络命名空间切换</strong>：数据包在命名空间之间移动会带来一定开销</li>
+                <li><strong>内核参数</strong>：如 tcp_mem、rmem/wmem 等会影响网络性能</li>
+                <li><strong>CNI 插件实现</strong>：不同的 CNI 插件可能有不同的性能特性</li>
+                <li><strong>网络策略</strong>：启用网络策略会增加额外的处理开销</li>
+            </ul>
+            
+            <h3>性能优化建议</h3>
+            <ul>
+                <li>对于需要高性能通信的 Pod，考虑将它们调度到同一节点</li>
+                <li>使用 hostNetwork: true 可以绕过 Pod 网络，直接使用主机网络（但会失去网络隔离）</li>
+                <li>调整 MTU 以适应网络环境，避免分片</li>
+                <li>考虑使用性能更好的 CNI 插件，如 Calico（路由模式）或 Cilium（eBPF 模式）</li>
+                <li>监控网络性能，及时发现瓶颈</li>
+            </ul>
+            
+            <div class="code-block">
+# 测试 Pod 间网络性能
+kubectl run iperf-server --image=networkstatic/iperf3 --port=5201 -- iperf3 -s
+kubectl run iperf-client --image=networkstatic/iperf3 --rm -it -- iperf3 -c iperf-server
+            </div>
+        </section>
+
+        <section>
+            <h2>故障排除</h2>
+            <p>在 Pod 间通信中可能遇到的常见问题及解决方法：</p>
+            
+            <div class="experiment-card">
+                <h3>连接问题</h3>
+                <p>症状：Pod 无法连接到同节点上的其他 Pod</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>网络策略阻止了通信</li>
+                    <li>路由配置错误</li>
+                    <li>ARP 缓存问题</li>
+                    <li>CNI 插件配置错误</li>
+                </ul>
+                <p>排查步骤：</p>
+                <div class="code-block">
+# 检查连通性
+kubectl exec -it <pod-a> -- ping <pod-b-ip>
+
+# 检查路由
+kubectl exec -it <pod-a> -- ip route
+ip route
+
+# 检查 ARP 缓存
+kubectl exec -it <pod-a> -- ip neigh
+ip neigh
+
+# 检查网络策略
+kubectl get networkpolicies
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>性能问题</h3>
+                <p>症状：Pod 间通信延迟高或吞吐量低</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>节点资源（CPU/内存）不足</li>
+                    <li>网络拥塞</li>
+                    <li>MTU 配置不当</li>
+                    <li>内核参数限制</li>
+                </ul>
+                <p>排查步骤：</p>
+                <div class="code-block">
+# 检查节点资源使用情况
+kubectl top nodes
+
+# 检查 MTU
+kubectl exec -it <pod-name> -- ip link show eth0
+ip link show cni0
+
+# 使用 iperf3 测试网络性能
+kubectl exec -it <pod-a> -- iperf3 -c <pod-b-ip>
+
+# 检查丢包
+kubectl exec -it <pod-a> -- ping -c 100 <pod-b-ip>
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>CNI 插件问题</h3>
+                <p>症状：Pod 网络配置失败或行为异常</p>
+                <p>排查步骤：</p>
+                <div class="code-block">
+# 检查 CNI 配置
+ls -la /etc/cni/net.d/
+
+# 检查 CNI 插件日志
+journalctl -u kubelet | grep cni
+
+# 检查 CNI 相关 Pod 的状态
+kubectl get pods -n kube-system -l k8s-app=calico-node
+kubectl logs -n kube-system -l k8s-app=calico-node
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <p>要了解更多关于 Pod 间通信的信息，可以参考以下资源：</p>
+            <ul>
+                <li><a href="pod-network.html">Pod 网络概述</a></li>
+                <li><a href="pod-ip-allocation.html">Pod IP 分配机制</a></li>
+                <li><a href="pod-internal-networking.html">Pod 内部网络</a></li>
+                <li><a href="cross-node-networking.html">跨节点 Pod 通信</a></li>
+                <li><a href="network-bridges.html">网桥技术</a></li>
+                <li><a href="veth-pairs.html">veth pair 技术</a></li>
+            </ul>
+            <a href="cross-node-networking.html" class="button">了解跨节点 Pod 通信</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

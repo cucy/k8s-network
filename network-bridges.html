@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网桥技术 | Kubernetes 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>网桥技术</h2>
+            <p>网桥是Kubernetes Pod网络中的关键组件，它在节点内部Pod通信中扮演着至关重要的角色。本文将深入探讨网桥的工作原理及其在Kubernetes网络中的应用。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/network-bridge.svg" class="diagram">
+                    网桥示意图
+                </object>
+            </div>
+            <p class="diagram-caption">图1: Kubernetes节点上的网桥连接多个Pod</p>
+        </section>
+
+        <section>
+            <h2>什么是网桥？</h2>
+            <p>网桥是一种虚拟网络设备，工作在数据链路层（OSI模型的第二层），主要功能是连接不同的网络段。在Linux系统中，网桥可以将多个网络接口连接在一起，使它们看起来像是一个统一的网络。</p>
+            
+            <div class="info-box">
+                <h3>网桥的关键特性</h3>
+                <ul>
+                    <li>工作在OSI模型的第二层（数据链路层）</li>
+                    <li>基于MAC地址转发数据包</li>
+                    <li>维护MAC地址表，记录连接到网桥的设备</li>
+                    <li>支持生成树协议（STP），防止网络环路</li>
+                    <li>可以连接多个网络接口，形成单一广播域</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>网桥在Kubernetes中的角色</h2>
+            <p>在Kubernetes网络中，网桥（如cbr0、docker0或cni0）是连接同一节点上不同Pod的关键组件。它将所有Pod的虚拟以太网（veth）接口连接起来，使同一节点上的Pod能够相互通信。</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">基本功能</div>
+                    <div class="tab">不同CNI实现</div>
+                    <div class="tab">网桥配置</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>网桥的基本功能</h3>
+                        <p>在Kubernetes节点上，网桥主要完成以下功能：</p>
+                        <ul>
+                            <li><strong>连接Pod网络接口</strong>：每个Pod的veth接口的一端连接到网桥</li>
+                            <li><strong>二层数据转发</strong>：根据MAC地址表在不同Pod之间转发数据包</li>
+                            <li><strong>提供本地网络隔离</strong>：不同的网桥可以隔离不同的网络</li>
+                            <li><strong>与主机网络连接</strong>：通过路由规则将Pod流量导向外部网络</li>
+                        </ul>
+                        <p>当一个Pod向同一节点上的另一个Pod发送数据包时，数据包会通过Pod的veth接口传输到网桥，然后网桥根据目标MAC地址将数据包转发到目标Pod的veth接口。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>不同CNI插件中的网桥实现</h3>
+                        <p>不同的CNI插件使用不同的网桥配置：</p>
+                        <div class="comparison-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>CNI插件</th>
+                                        <th>网桥名称</th>
+                                        <th>特点</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Flannel</td>
+                                        <td>cni0</td>
+                                        <td>为每个节点分配一个子网，Pod IP来自该子网</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Calico</td>
+                                        <td>通常不使用网桥，而是使用路由</td>
+                                        <td>使用BGP协议进行路由分发，而非传统网桥</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Weave</td>
+                                        <td>weave</td>
+                                        <td>创建网状覆盖网络，使用网桥连接本地Pod</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Docker默认</td>
+                                        <td>docker0</td>
+                                        <td>Docker的默认网桥，在某些Kubernetes部署中可见</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>网桥配置与管理</h3>
+                        <p>在Linux系统中，可以使用以下命令查看和管理网桥：</p>
+                        <div class="code-block">
+# 查看系统中的所有网桥
+ip link show type bridge
+
+# 查看特定网桥的详细信息
+ip -d link show dev cni0
+
+# 查看网桥上连接的接口
+bridge link show
+
+# 查看网桥的MAC地址表
+bridge fdb show
+                        </div>
+                        <p>网桥的配置通常由CNI插件自动完成，但了解其工作原理有助于排查网络问题。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>网桥与veth pair的协作</h2>
+            <p>网桥与虚拟以太网设备对（veth pair）紧密协作，共同构建了Pod网络的基础：</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/bridge-veth-collaboration.svg" class="diagram">
+                    网桥与veth pair协作示意图
+                </object>
+            </div>
+            <p class="diagram-caption">图2: 网桥与veth pair协作原理详解</p>
+            
+            <div class="workflow-diagram">
+                <h3>网桥与veth pair协作的关键机制</h3>
+                <p>在Kubernetes网络模型中，网桥与veth pair的协作是实现Pod网络通信的基础。这种协作机制具有以下特点：</p>
+                
+                <div class="feature-grid">
+                    <div class="feature">
+                        <h4>网络隔离与连接</h4>
+                        <p>veth pair一端连接Pod的网络命名空间，另一端连接主机网络命名空间，而网桥则将所有Pod的veth接口连接起来，在保持网络隔离的同时实现互联互通。</p>
+                    </div>
+                    
+                    <div class="feature">
+                        <h4>二层转发</h4>
+                        <p>网桥工作在数据链路层，通过学习和维护MAC地址表，能够高效地将数据包转发到正确的目标Pod。这种转发机制无需经过IP层路由，性能更高。</p>
+                    </div>
+                    
+                    <div class="feature">
+                        <h4>透明通信</h4>
+                        <p>对Pod内的应用程序来说，整个网络通信过程是完全透明的。应用只需使用标准的网络API，无需关心底层的网桥和veth pair实现细节。</p>
+                    </div>
+                    
+                    <div class="feature">
+                        <h4>动态适应</h4>
+                        <p>当Pod创建或删除时，CNI插件会自动创建或删除相应的veth pair，并将其连接到网桥或从网桥断开，整个过程对用户透明。</p>
+                    </div>
+                </div>
+                
+                <ol class="workflow-steps">
+                    <li>
+                        <h3>步骤1：创建Pod网络命名空间</h3>
+                        <p>当Pod创建时，Kubernetes首先为其创建一个独立的网络命名空间，这个命名空间提供了完全隔离的网络栈，包括网络接口、路由表、iptables规则等。</p>
+                        <div class="code-block">
+# 查看系统中的网络命名空间
+sudo ip netns list
+
+# 查看特定Pod的网络命名空间
+POD_ID=$(docker ps | grep k8s_POD_<pod-name> | awk '{print $1}')
+sudo nsenter --net=/proc/$(docker inspect -f '{{.State.Pid}}' $POD_ID)/ns/net ip addr
+                        </div>
+                    </li>
+                    <li>
+                        <h3>步骤2：创建veth pair</h3>
+                        <p>CNI插件创建一对虚拟以太网接口（veth pair）。veth pair的特点是它们总是成对出现，数据从一端进入会从另一端出来，就像一个管道。一个接口（通常命名为eth0）被放入Pod的网络命名空间，另一个接口（通常有类似vethXXXX的名称）保留在主机的网络命名空间中。</p>
+                        <div class="code-block">
+# 在主机上查看veth接口
+ip link | grep veth
+
+# 查看特定veth接口的详细信息
+ip -d link show dev vethXXXX
+                        </div>
+                    </li>
+                    <li>
+                        <h3>步骤3：连接到网桥</h3>
+                        <p>CNI插件将veth pair的主机端连接到节点上的网桥（如cni0、docker0等）。这一步使得所有Pod的网络接口在逻辑上连接到同一个二层网络设备上，为Pod间通信提供了基础。</p>
+                        <div class="code-block">
+# 查看网桥上连接的接口
+bridge link show
+
+# 手动将接口连接到网桥（通常由CNI自动完成）
+ip link set vethXXXX master cni0
+                        </div>
+                    </li>
+                    <li>
+                        <h3>步骤4：配置Pod内部接口</h3>
+                        <p>CNI插件在Pod的网络命名空间内配置eth0接口，包括设置IP地址、子网掩码、默认路由等。这使得Pod能够通过网络与其他Pod和外部世界通信。</p>
+                        <div class="code-block">
+# 在Pod内部查看网络配置
+kubectl exec -it <pod-name> -- ip addr
+kubectl exec -it <pod-name> -- ip route
+                        </div>
+                    </li>
+                </ol>
+            </div>
+            
+            <div class="info-box">
+                <h3>veth pair与网桥的物理类比</h3>
+                <p>如果将Kubernetes网络比作物理网络，那么：</p>
+                <ul>
+                    <li><strong>Pod</strong>相当于一台独立的计算机</li>
+                    <li><strong>veth pair</strong>相当于将计算机连接到交换机的网线</li>
+                    <li><strong>网桥</strong>相当于一个以太网交换机</li>
+                    <li><strong>网络命名空间</strong>相当于物理隔离的网络环境</li>
+                </ul>
+                <p>这种类比有助于理解Kubernetes网络的工作原理，尽管实际实现要复杂得多。</p>
+            </div>
+            
+            <div class="code-block">
+# 完整查看Pod网络设置的命令序列
+
+# 1. 找到Pod的容器ID
+POD_CONTAINER=$(crictl ps | grep <pod-name> | awk '{print $1}')
+
+# 2. 获取容器的进程ID
+CONTAINER_PID=$(crictl inspect --output json $POD_CONTAINER | jq .info.pid)
+
+# 3. 进入容器的网络命名空间查看网络配置
+nsenter -t $CONTAINER_PID -n ip addr
+nsenter -t $CONTAINER_PID -n ip route
+
+# 4. 在主机上查找与Pod关联的veth接口
+ip link | grep -A 1 veth
+
+# 5. 确认veth接口连接到了网桥
+bridge link show | grep vethXXXX
+            </div>
+        </section>
+
+        <section>
+            <h2>网桥数据包流向</h2>
+            <p>了解数据包在网桥中的流向有助于理解Pod网络通信的工作原理：</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/packet-flow.svg" class="diagram">
+                    数据包流向示意图
+                </object>
+            </div>
+            <p class="diagram-caption">图3: Pod间通信数据包流向详解</p>
+            
+            <div class="interactive">
+                <h3>同一节点上Pod间通信数据包流向详解</h3>
+                <p>当Pod A需要与同一节点上的Pod B通信时，数据包的流向如下：</p>
+                
+                <div class="packet-flow">
+                    <div class="step">
+                        <span class="number">1</span>
+                        <p><strong>应用程序发起通信</strong>：Pod A中的应用程序发起对Pod B的通信请求，例如通过TCP/IP协议栈发送数据包到目标IP（Pod B的IP地址）。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">2</span>
+                        <p><strong>ARP解析</strong>：如果Pod A的ARP缓存中没有Pod B的MAC地址，它会发送ARP请求，询问"谁拥有IP地址10.244.1.3？"。这个ARP请求通过Pod A的eth0接口发出。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">3</span>
+                        <p><strong>veth传输</strong>：ARP请求通过veth pair从Pod A的网络命名空间传输到主机网络命名空间，到达网桥。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">4</span>
+                        <p><strong>网桥广播</strong>：网桥收到ARP请求后，将其广播到连接到网桥的所有其他接口（除了接收接口）。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">5</span>
+                        <p><strong>Pod B响应</strong>：Pod B收到ARP请求后，发现请求的IP是自己的，因此回复一个ARP响应，包含自己的MAC地址。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">6</span>
+                        <p><strong>MAC地址学习</strong>：网桥在转发ARP响应的同时，学习并记录Pod B的MAC地址与其连接的veth接口的对应关系，更新MAC地址表。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">7</span>
+                        <p><strong>数据包发送</strong>：Pod A现在知道了Pod B的MAC地址，它可以构建完整的数据包（包含源IP、目标IP、源MAC和目标MAC），并通过eth0发送出去。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">8</span>
+                        <p><strong>网桥转发</strong>：数据包到达网桥后，网桥查找自己的MAC地址表，找到目标MAC地址对应的接口，然后将数据包只转发到该接口，而不是广播。</p>
+                    </div>
+                    <div class="step">
+                        <span class="number">9</span>
+                        <p><strong>数据包接收</strong>：数据包通过veth pair到达Pod B的网络命名空间，被Pod B的网络栈接收并处理，最终交付给应用程序。</p>
+                    </div>
+                </div>
+                
+                <div class="note">
+                    <p><strong>注意</strong>：上述过程是针对首次通信的情况。后续通信中，由于ARP缓存已经建立，步骤2-6通常会被跳过，直接从步骤7开始，使通信更加高效。</p>
+                </div>
+                
+                <div class="code-block">
+# 在主机上使用tcpdump观察网桥上的数据包流向
+sudo tcpdump -i cni0 -n
+
+# 在Pod A中ping Pod B，同时观察网桥上的数据包
+kubectl exec -it <pod-a> -- ping <pod-b-ip>
+
+# 查看主机上的ARP缓存
+ip neigh show
+
+# 查看Pod内的ARP缓存
+kubectl exec -it <pod-a> -- ip neigh show
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <h2>网桥与跨节点通信</h2>
+            <p>虽然网桥主要负责节点内部的Pod通信，但它也在跨节点通信中扮演重要角色：</p>
+            
+            <div class="info-box">
+                <h3>网桥在跨节点通信中的作用</h3>
+                <ul>
+                    <li><strong>出站流量处理</strong>：当Pod需要与其他节点上的Pod通信时，数据包首先经过本地网桥</li>
+                    <li><strong>路由决策</strong>：网桥与节点的路由表配合，决定如何转发跨节点流量</li>
+                    <li><strong>封装/解封装支持</strong>：在使用Overlay网络（如VXLAN）时，网桥协助处理封装和解封装的流量</li>
+                </ul>
+            </div>
+            
+            <p>跨节点通信的具体实现取决于所使用的CNI插件，但网桥通常是数据包离开或进入节点时的第一个或最后一个处理点。</p>
+            <p>了解更多关于<a href="cross-node-networking.html">跨节点Pod通信</a>的详细信息。</p>
+        </section>
+
+        <section>
+            <h2>网桥相关的常见问题</h2>
+            <p>在Kubernetes网络排障过程中，网桥相关的问题较为常见：</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">网桥接口丢失</div>
+                    <div class="accordion-content">
+                        <p>症状：Pod无法与同一节点上的其他Pod通信</p>
+                        <p>可能原因：CNI配置错误、网桥接口被意外删除</p>
+                        <p>解决方法：重启CNI插件或节点网络服务，检查CNI配置</p>
+                        <div class="code-block">
+# 检查网桥是否存在
+ip link show type bridge
+
+# 如使用Flannel，可以尝试重启
+systemctl restart flanneld
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">MAC地址表问题</div>
+                    <div class="accordion-content">
+                        <p>症状：Pod间通信间歇性失败或延迟高</p>
+                        <p>可能原因：网桥MAC地址表过期或不正确</p>
+                        <p>解决方法：清除并重建MAC地址表</p>
+                        <div class="code-block">
+# 查看MAC地址表
+bridge fdb show
+
+# 删除特定MAC地址条目
+bridge fdb del <MAC地址> dev <接口名>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">MTU不匹配</div>
+                    <div class="accordion-content">
+                        <p>症状：大数据包传输失败，小数据包正常</p>
+                        <p>可能原因：网桥与Pod接口的MTU设置不一致</p>
+                        <p>解决方法：统一配置MTU大小</p>
+                        <div class="code-block">
+# 查看网桥MTU
+ip link show <网桥名>
+
+# 设置网桥MTU
+ip link set <网桥名> mtu <MTU值>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>网桥性能优化</h2>
+            <p>在大规模Kubernetes集群中，网桥性能可能成为瓶颈。以下是一些优化建议：</p>
+            
+            <div class="tips-container">
+                <div class="tip">
+                    <h3>启用硬件卸载</h3>
+                    <p>如果物理网卡支持，可以启用硬件卸载功能，减轻CPU负担</p>
+                    <div class="code-block">
+# 检查网卡卸载功能
+ethtool -k <物理网卡>
+
+# 启用特定卸载功能
+ethtool -K <物理网卡> tx-checksum-ip-generic on
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>调整网桥参数</h3>
+                    <p>某些网桥参数可以根据工作负载特性进行调整</p>
+                    <div class="code-block">
+# 查看网桥转发延迟
+cat /sys/class/net/<网桥名>/bridge/forward_delay
+
+# 设置网桥转发延迟（毫秒）
+echo 100 > /sys/class/net/<网桥名>/bridge/forward_delay
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>考虑替代方案</h3>
+                    <p>对于高性能需求，可以考虑使用eBPF或DPDK等技术替代传统网桥</p>
+                    <p>某些CNI插件（如Cilium）提供了基于eBPF的高性能网络实现</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>动手实验：探索网桥</h2>
+            <p>通过以下实验，您可以亲自观察和了解Kubernetes中的网桥工作原理：</p>
+            
+            <div class="experiment-card">
+                <h3>实验1：查看网桥配置</h3>
+                <div class="code-block">
+# 在Kubernetes节点上执行
+# 查看所有网桥
+ip link show type bridge
+
+# 查看网桥详细信息
+ip -d link show dev cni0
+
+# 查看网桥上连接的接口
+bridge link show
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验2：跟踪Pod间通信</h3>
+                <div class="code-block">
+# 创建两个测试Pod
+kubectl run pod1 --image=nicolaka/netshoot
+kubectl run pod2 --image=nicolaka/netshoot
+
+# 获取Pod IP
+POD1_IP=$(kubectl get pod pod1 -o jsonpath='{.status.podIP}')
+POD2_IP=$(kubectl get pod pod2 -o jsonpath='{.status.podIP}')
+
+# 在Pod1中ping Pod2
+kubectl exec -it pod1 -- ping $POD2_IP
+
+# 在节点上使用tcpdump监控网桥流量
+sudo tcpdump -i cni0 host $POD1_IP and host $POD2_IP
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验3：观察MAC地址学习</h3>
+                <div class="code-block">
+# 清除网桥MAC地址表
+sudo ip link set cni0 down
+sudo ip link set cni0 up
+
+# 生成Pod间流量
+kubectl exec -it pod1 -- ping -c 3 $POD2_IP
+
+# 观察网桥学习到的MAC地址
+bridge fdb show
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>网桥与其他网络技术</h2>
+            <p>网桥是Kubernetes网络的重要组成部分，但它与其他网络技术紧密协作：</p>
+            
+            <div class="related-topics">
+                <div class="topic">
+                    <h3>网络命名空间</h3>
+                    <p>网桥连接不同的网络命名空间，使它们能够通信</p>
+                    <a href="network-namespaces.html" class="button">了解网络命名空间</a>
+                </div>
+                
+                <div class="topic">
+                    <h3>veth pair</h3>
+                    <p>veth pair是网桥连接Pod网络命名空间的桥梁</p>
+                    <a href="veth-pairs.html" class="button">了解veth pair</a>
+                </div>
+                
+                <div class="topic">
+                    <h3>Overlay网络</h3>
+                    <p>在跨节点通信中，网桥与Overlay网络技术（如VXLAN）配合工作</p>
+                    <a href="overlay-networks.html" class="button">了解Overlay网络</a>
+                </div>
+                
+                <div class="topic">
+                    <h3>CNI插件</h3>
+                    <p>不同的CNI插件使用不同的网桥配置和管理方式</p>
+                    <a href="cni.html" class="button">了解CNI插件</a>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>深入学习</h2>
+            <p>要更深入地了解网桥技术，可以参考以下资源：</p>
+            
+            <div class="resources">
+                <div class="resource">
+                    <h3>Linux网桥文档</h3>
+                    <p>Linux内核文档中关于网桥的详细说明</p>
+                    <a href="https://www.kernel.org/doc/Documentation/networking/bridge.txt" target="_blank">访问文档</a>
+                </div>
+                
+                <div class="resource">
+                    <h3>CNI规范</h3>
+                    <p>容器网络接口规范，包含网桥插件的详细说明</p>
+                    <a href="https://github.com/containernetworking/cni/blob/master/SPEC.md" target="_blank">查看规范</a>
+                </div>
+                
+                <div class="resource">
+                    <h3>Kubernetes网络模型</h3>
+                    <p>Kubernetes官方文档中关于网络模型的说明</p>
+                    <a href="https://kubernetes.io/docs/concepts/cluster-administration/networking/" target="_blank">阅读文档</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+
+    <script>
+        // 标签切换功能
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabContainers = document.querySelectorAll('.tab-container');
+            
+            tabContainers.forEach(container => {
+                const tabs = container.querySelectorAll('.tab');
+                const panes = container.querySelectorAll('.tab-pane');
+                
+                tabs.forEach((tab, index) => {
+                    tab.addEventListener('click', () => {
+                        // 移除所有活动状态
+                        tabs.forEach(t => t.classList.remove('active'));
+                        panes.forEach(p => p.classList.remove('active'));
+                        
+                        // 设置当前标签为活动状态
+                        tab.classList.add('active');
+                        panes[index].classList.add('active');
+                    });
+                });
+            });
+            
+            // 手风琴功能
+            const accordionHeaders = document.querySelectorAll('.accordion-header');
+            
+            accordionHeaders.forEach(header => {
+                header.addEventListener('click', () => {
+                    const content = header.nextElementSibling;
+                    const isOpen = header.classList.contains('active');
+                    
+                    // 关闭所有其他手风琴项
+                    document.querySelectorAll('.accordion-header.active').forEach(h => {
+                        if (h !== header) {
+                            h.classList.remove('active');
+                            h.nextElementSibling.style.maxHeight = null;
+                        }
+                    });
+                    
+                    // 切换当前项
+                    if (!isOpen) {
+                        header.classList.add('active');
+                        content.style.maxHeight = content.scrollHeight + 'px';
+                    } else {
+                        header.classList.remove('active');
+                        content.style.maxHeight = null;
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+    <!-- 定义渐变和滤镜 -->
+    <defs>
+        <!-- 节点背景渐变 -->
+        <linearGradient id="nodeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#f0f4f8;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#d1e0ed;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- Pod 背景渐变 -->
+        <linearGradient id="podGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#e6f7ff;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#bae7ff;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 容器背景渐变 -->
+        <linearGradient id="containerGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#f6ffed;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#d9f7be;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 网络背景渐变 -->
+        <linearGradient id="networkGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#f9f0ff;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#efdbff;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- VXLAN 隧道渐变 -->
+        <linearGradient id="vxlanGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#ffa39e;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ff7875;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 直接路由渐变 -->
+        <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#b7eb8f;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#73d13d;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 阴影效果 -->
+        <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#333" flood-opacity="0.3"/>
+        </filter>
+        
+        <!-- 箭头标记 -->
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#666"/>
+        </marker>
+        
+        <!-- 虚线箭头标记 -->
+        <marker id="dashedArrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff7875"/>
+        </marker>
+        
+        <!-- 路由箭头标记 -->
+        <marker id="routeArrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#73d13d"/>
+        </marker>
+    </defs>
+    
+    <!-- 背景 -->
+    <rect width="800" height="600" fill="#f5f5f5" />
+    
+    <!-- 标题 -->
+    <text x="400" y="30" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#333">跨节点 Pod 通信</text>
+    
+    <!-- 物理网络 -->
+    <rect x="50" y="450" width="700" height="100" rx="5" ry="5" fill="url(#networkGradient)" stroke="#d3adf7" stroke-width="2" filter="url(#shadow)" />
+    <text x="400" y="490" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">物理网络</text>
+    <text x="400" y="520" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#666">底层网络基础设施</text>
+    
+    <!-- 节点 A -->
+    <g id="nodeA">
+        <rect x="100" y="100" width="250" height="300" rx="10" ry="10" fill="url(#nodeGradient)" stroke="#91caff" stroke-width="2" filter="url(#shadow)" />
+        <text x="225" y="130" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">节点 A</text>
+        <text x="225" y="155" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">192.168.1.101</text>
+        
+        <!-- Pod A -->
+        <rect x="130" y="170" width="190" height="120" rx="8" ry="8" fill="url(#podGradient)" stroke="#69c0ff" stroke-width="2" />
+        <text x="225" y="190" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">Pod A</text>
+        <text x="225" y="210" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">10.244.1.2</text>
+        
+        <!-- 容器 -->
+        <rect x="150" y="220" width="150" height="50" rx="5" ry="5" fill="url(#containerGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="225" y="250" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">容器</text>
+        
+        <!-- 网络组件 -->
+        <rect x="130" y="310" width="190" height="70" rx="5" ry="5" fill="#fff" stroke="#d9d9d9" stroke-width="1" />
+        <text x="225" y="330" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">网络组件</text>
+        <text x="225" y="350" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">flannel.1 / tunl0 / eth0</text>
+        <text x="225" y="370" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">路由表 / FDB / BGP</text>
+    </g>
+    
+    <!-- 节点 B -->
+    <g id="nodeB">
+        <rect x="450" y="100" width="250" height="300" rx="10" ry="10" fill="url(#nodeGradient)" stroke="#91caff" stroke-width="2" filter="url(#shadow)" />
+        <text x="575" y="130" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">节点 B</text>
+        <text x="575" y="155" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">192.168.1.102</text>
+        
+        <!-- Pod B -->
+        <rect x="480" y="170" width="190" height="120" rx="8" ry="8" fill="url(#podGradient)" stroke="#69c0ff" stroke-width="2" />
+        <text x="575" y="190" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">Pod B</text>
+        <text x="575" y="210" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">10.244.2.3</text>
+        
+        <!-- 容器 -->
+        <rect x="500" y="220" width="150" height="50" rx="5" ry="5" fill="url(#containerGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="575" y="250" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">容器</text>
+        
+        <!-- 网络组件 -->
+        <rect x="480" y="310" width="190" height="70" rx="5" ry="5" fill="#fff" stroke="#d9d9d9" stroke-width="1" />
+        <text x="575" y="330" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">网络组件</text>
+        <text x="575" y="350" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">flannel.1 / tunl0 / eth0</text>
+        <text x="575" y="370" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">路由表 / FDB / BGP</text>
+    </g>
+    
+    <!-- 节点连接到物理网络 -->
+    <line x1="225" y1="400" x2="225" y2="450" stroke="#d9d9d9" stroke-width="2" />
+    <line x1="575" y1="400" x2="575" y2="450" stroke="#d9d9d9" stroke-width="2" />
+    
+    <!-- 通信方式 -->
+    <!-- VXLAN 隧道 -->
+    <path id="vxlanPath" d="M 225 420 C 225,430 575,430 575,420" stroke="url(#vxlanGradient)" stroke-width="4" stroke-dasharray="5,3" fill="none" marker-end="url(#dashedArrow)" class="communication-path vxlan" />
+    <text>
+        <textPath href="#vxlanPath" startOffset="50%" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#333">
+            <tspan dy="-10">VXLAN 隧道</tspan>
+        </textPath>
+    </text>
+    
+    <!-- 直接路由 -->
+    <path id="routePath" d="M 225 440 C 225,450 575,450 575,440" stroke="url(#routeGradient)" stroke-width="4" fill="none" marker-end="url(#routeArrow)" class="communication-path route" />
+    <text>
+        <textPath href="#routePath" startOffset="50%" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#333">
+            <tspan dy="-10">直接路由</tspan>
+        </textPath>
+    </text>
+    
+    <!-- 数据包路径 -->
+    <!-- Pod A 到 Pod B 的数据包 -->
+    <path d="M 225 230 L 225 310" stroke="#666" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow)" />
+    <path d="M 575 310 L 575 230" stroke="#666" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow)" />
+    
+    <!-- 图例 -->
+    <g id="legend" transform="translate(50, 560)">
+        <rect x="0" y="0" width="15" height="5" fill="url(#vxlanGradient)" />
+        <text x="20" y="5" font-family="Arial, sans-serif" font-size="10" fill="#333">VXLAN/Overlay 网络</text>
+        
+        <rect x="200" y="0" width="15" height="5" fill="url(#routeGradient)" />
+        <text x="220" y="5" font-family="Arial, sans-serif" font-size="10" fill="#333">直接路由/BGP</text>
+        
+        <rect x="400" y="0" width="15" height="5" fill="url(#podGradient)" stroke="#69c0ff" stroke-width="1" />
+        <text x="420" y="5" font-family="Arial, sans-serif" font-size="10" fill="#333">Pod</text>
+        
+        <rect x="500" y="0" width="15" height="5" fill="url(#nodeGradient)" stroke="#91caff" stroke-width="1" />
+        <text x="520" y="5" font-family="Arial, sans-serif" font-size="10" fill="#333">节点</text>
+    </g>
+    
+    <!-- 交互式元素的 JavaScript 支持 -->
+    <script type="text/javascript"><![CDATA[
+        // 这里可以添加交互式功能的 JavaScript 代码
+        // 例如点击不同的通信路径显示不同的通信方式
+    ]]></script>
+</svg>

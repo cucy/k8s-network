@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="400" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="800" height="400" fill="#f8f9fa" />
+  
+  <!-- 标题 -->
+  <text x="400" y="30" font-family="Arial" font-size="20" text-anchor="middle" fill="#333">网桥连接网络命名空间示意图</text>
+  
+  <!-- 网络命名空间 ns1 -->
+  <rect x="100" y="80" width="200" height="220" rx="10" ry="10" fill="#e1f5fe" stroke="#0288d1" stroke-width="2" />
+  <text x="200" y="110" font-family="Arial" font-size="16" text-anchor="middle" fill="#0288d1" font-weight="bold">网络命名空间 ns1</text>
+  
+  <!-- 网络命名空间 ns2 -->
+  <rect x="500" y="80" width="200" height="220" rx="10" ry="10" fill="#e1f5fe" stroke="#0288d1" stroke-width="2" />
+  <text x="600" y="110" font-family="Arial" font-size="16" text-anchor="middle" fill="#0288d1" font-weight="bold">网络命名空间 ns2</text>
+  
+  <!-- 网桥 -->
+  <rect x="300" y="180" width="200" height="80" rx="5" ry="5" fill="#e8f5e9" stroke="#388e3c" stroke-width="2" />
+  <text x="400" y="210" font-family="Arial" font-size="16" text-anchor="middle" fill="#388e3c" font-weight="bold">网桥 br0</text>
+  <text x="400" y="235" font-family="Arial" font-size="14" text-anchor="middle" fill="#388e3c">192.168.1.0/24</text>
+  
+  <!-- veth1 接口 -->
+  <circle cx="200" cy="200" r="20" fill="#ffecb3" stroke="#ffa000" stroke-width="2" />
+  <text x="200" y="205" font-family="Arial" font-size="12" text-anchor="middle" fill="#333">veth1</text>
+  
+  <!-- veth2 接口 -->
+  <circle cx="600" cy="200" r="20" fill="#ffecb3" stroke="#ffa000" stroke-width="2" />
+  <text x="600" y="205" font-family="Arial" font-size="12" text-anchor="middle" fill="#333">veth2</text>
+  
+  <!-- br-veth1 接口 -->
+  <circle cx="320" cy="200" r="20" fill="#ffecb3" stroke="#ffa000" stroke-width="2" />
+  <text x="320" y="205" font-family="Arial" font-size="12" text-anchor="middle" fill="#333">br-veth1</text>
+  
+  <!-- br-veth2 接口 -->
+  <circle cx="480" cy="200" r="20" fill="#ffecb3" stroke="#ffa000" stroke-width="2" />
+  <text x="480" y="205" font-family="Arial" font-size="12" text-anchor="middle" fill="#333">br-veth2</text>
+  
+  <!-- 连接线 -->
+  <line x1="220" y1="200" x2="300" y2="200" stroke="#333" stroke-width="2" />
+  <line x1="500" y1="200" x2="580" y2="200" stroke="#333" stroke-width="2" />
+  
+  <!-- IP 地址标签 -->
+  <text x="200" cy="160" font-family="Arial" font-size="12" text-anchor="middle" fill="#333">IP: 192.168.1.10/24</text>
+  <text x="600" cy="160" font-family="Arial" font-size="12" text-anchor="middle" fill="#333">IP: 192.168.1.20/24</text>
+  
+  <!-- 数据包流向 -->
+  <path d="M 220,180 Q 300,150 380,180" fill="none" stroke="#f44336" stroke-width="2" stroke-dasharray="5,5" />
+  <polygon points="375,180 385,185 385,175" fill="#f44336" />
+  
+  <path d="M 420,180 Q 500,150 580,180" fill="none" stroke="#f44336" stroke-width="2" stroke-dasharray="5,5" />
+  <polygon points="575,180 585,185 585,175" fill="#f44336" />
+  
+  <!-- 说明文本 -->
+  <text x="400" y="320" font-family="Arial" font-size="14" text-anchor="middle" fill="#333">网桥作为虚拟交换机连接多个网络命名空间</text>
+  <text x="400" y="345" font-family="Arial" font-size="14" text-anchor="middle" fill="#333">使命名空间之间可以通过二层网络通信</text>
+  <text x="400" y="370" font-family="Arial" font-size="14" text-anchor="middle" fill="#333">所有接口都在同一个广播域中</text>
+</svg>

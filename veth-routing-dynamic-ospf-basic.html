@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对OSPF基本配置 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对OSPF基本配置</h2>
+            <p>本页将详细介绍如何在 Linux 网络命名空间和 Veth 对环境中配置基本的 OSPF 路由。通过一个简单的实验，我们将展示 OSPF 如何自动发现路由并适应网络拓扑的变化。</p>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces-basics.html">Veth 对与网络命名空间基础</a></li>
+                    <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                    <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                    <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                    <li><a href="veth-routing-dynamic-ospf.html">OSPF 路由配置</a></li>
+                    <li><a href="veth-routing-dynamic-ospf-basic.html" class="active">OSPF 基本配置</a></li>
+                    <li><a href="veth-routing-dynamic-ospf-advanced.html">OSPF 高级配置</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验环境准备</h2>
+            <p>在开始实验之前，我们需要准备实验环境。这包括安装必要的软件包和创建网络拓扑。</p>
+            
+            <h3>安装必要的软件包</h3>
+            <p>我们将使用 FRRouting (FRR) 作为 OSPF 路由软件。FRR 是一个功能强大的开源路由软件套件，支持多种路由协议，包括 OSPF。</p>
+            <div class="code-block">
+# 添加 FRR 源
+curl -s https://deb.frrouting.org/frr/keys.asc | sudo apt-key add -
+echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) frr-stable | sudo tee -a /etc/apt/sources.list.d/frr.list
+
+# 安装 FRR
+sudo apt update
+sudo apt install -y frr frr-pythontools
+
+# 安装其他必要的工具
+sudo apt install -y net-tools tcpdump traceroute
+</div>
+            
+            <h3>实验拓扑</h3>
+            <p>我们将创建一个简单的拓扑，包含三个网络命名空间，形成一个三角形。每个命名空间都通过 Veth 对与其他两个命名空间相连。</p>
+            <ul>
+                <li>ns1：10.0.1.1/24 和 10.0.2.1/24，连接到 ns2 和 ns3</li>
+                <li>ns2：10.0.1.2/24 和 10.0.3.1/24，连接到 ns1 和 ns3</li>
+                <li>ns3：10.0.2.2/24 和 10.0.3.2/24，连接到 ns1 和 ns2</li>
+            </ul>
+            
+            <p>每个命名空间还有一个环回接口，用于模拟内部网络：</p>
+            <ul>
+                <li>ns1：192.168.1.1/24</li>
+                <li>ns2：192.168.2.1/24</li>
+                <li>ns3：192.168.3.1/24</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>创建网络拓扑</h2>
+            <p>首先，我们需要创建网络命名空间和 Veth 对，并配置 IP 地址。</p>
+            
+            <h3>创建网络命名空间</h3>
+            <div class="code-block">
+# 创建三个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+sudo ip netns add ns3
+
+# 验证创建结果
+ip netns list
+</div>
+            
+            <h3>创建 Veth 对</h3>
+            <div class="code-block">
+# 创建三对 Veth 设备
+# ns1 和 ns2 之间的 Veth 对
+sudo ip link add veth1-2 type veth peer name veth2-1
+
+# ns1 和 ns3 之间的 Veth 对
+sudo ip link add veth1-3 type veth peer name veth3-1
+
+# ns2 和 ns3 之间的 Veth 对
+sudo ip link add veth2-3 type veth peer name veth3-2
+
+# 验证创建结果
+ip link show type veth
+</div>
+            
+            <h3>分配 Veth 设备到网络命名空间</h3>
+            <div class="code-block">
+# 将 Veth 设备分配到相应的网络命名空间
+# ns1 的设备
+sudo ip link set veth1-2 netns ns1
+sudo ip link set veth1-3 netns ns1
+
+# ns2 的设备
+sudo ip link set veth2-1 netns ns2
+sudo ip link set veth2-3 netns ns2
+
+# ns3 的设备
+sudo ip link set veth3-1 netns ns3
+sudo ip link set veth3-2 netns ns3
+
+# 验证分配结果
+sudo ip netns exec ns1 ip link show
+sudo ip netns exec ns2 ip link show
+sudo ip netns exec ns3 ip link show
+</div>
+            
+            <h3>配置 IP 地址</h3>
+            <div class="code-block">
+# 配置 ns1 的 IP 地址
+sudo ip netns exec ns1 ip addr add 10.0.1.1/24 dev veth1-2
+sudo ip netns exec ns1 ip addr add 10.0.2.1/24 dev veth1-3
+sudo ip netns exec ns1 ip addr add 192.168.1.1/24 dev lo
+sudo ip netns exec ns1 ip link set veth1-2 up
+sudo ip netns exec ns1 ip link set veth1-3 up
+sudo ip netns exec ns1 ip link set lo up
+
+# 配置 ns2 的 IP 地址
+sudo ip netns exec ns2 ip addr add 10.0.1.2/24 dev veth2-1
+sudo ip netns exec ns2 ip addr add 10.0.3.1/24 dev veth2-3
+sudo ip netns exec ns2 ip addr add 192.168.2.1/24 dev lo
+sudo ip netns exec ns2 ip link set veth2-1 up
+sudo ip netns exec ns2 ip link set veth2-3 up
+sudo ip netns exec ns2 ip link set lo up
+
+# 配置 ns3 的 IP 地址
+sudo ip netns exec ns3 ip addr add 10.0.2.2/24 dev veth3-1
+sudo ip netns exec ns3 ip addr add 10.0.3.2/24 dev veth3-2
+sudo ip netns exec ns3 ip addr add 192.168.3.1/24 dev lo
+sudo ip netns exec ns3 ip link set veth3-1 up
+sudo ip netns exec ns3 ip link set veth3-2 up
+sudo ip netns exec ns3 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr
+sudo ip netns exec ns2 ip addr
+sudo ip netns exec ns3 ip addr
+</div>
+            
+            <h3>启用 IP 转发</h3>
+            <div class="code-block">
+# 在所有命名空间中启用 IP 转发
+sudo ip netns exec ns1 sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec ns2 sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec ns3 sysctl -w net.ipv4.ip_forward=1
+
+# 验证 IP 转发是否启用
+sudo ip netns exec ns1 sysctl net.ipv4.ip_forward
+sudo ip netns exec ns2 sysctl net.ipv4.ip_forward
+sudo ip netns exec ns3 sysctl net.ipv4.ip_forward
+</div>
+        </section>
+
+        <section>
+            <h2>配置 FRRouting</h2>
+            <p>现在我们需要为每个网络命名空间配置 FRRouting，启用 OSPF。</p>
+            
+            <h3>为每个命名空间创建 FRR 配置目录</h3>
+            <div class="code-block">
+# 创建配置目录
+sudo mkdir -p /etc/frr/ns1
+sudo mkdir -p /etc/frr/ns2
+sudo mkdir -p /etc/frr/ns3
+
+# 复制默认配置文件
+sudo cp /etc/frr/daemons /etc/frr/ns1/
+sudo cp /etc/frr/daemons /etc/frr/ns2/
+sudo cp /etc/frr/daemons /etc/frr/ns3/
+
+# 创建空的 frr.conf 文件
+sudo touch /etc/frr/ns1/frr.conf
+sudo touch /etc/frr/ns2/frr.conf
+sudo touch /etc/frr/ns3/frr.conf
+
+# 设置权限
+sudo chown -R frr:frr /etc/frr/ns1
+sudo chown -R frr:frr /etc/frr/ns2
+sudo chown -R frr:frr /etc/frr/ns3
+sudo chmod 640 /etc/frr/ns1/frr.conf
+sudo chmod 640 /etc/frr/ns2/frr.conf
+sudo chmod 640 /etc/frr/ns3/frr.conf
+</div>
+            
+            <h3>启用 OSPF</h3>
+            <div class="code-block">
+# 编辑 ns1 的 daemons 文件
+sudo sed -i 's/ospfd=no/ospfd=yes/' /etc/frr/ns1/daemons
+
+# 编辑 ns2 的 daemons 文件
+sudo sed -i 's/ospfd=no/ospfd=yes/' /etc/frr/ns2/daemons
+
+# 编辑 ns3 的 daemons 文件
+sudo sed -i 's/ospfd=no/ospfd=yes/' /etc/frr/ns3/daemons
+</div>
+            
+            <h3>创建 FRR 配置文件</h3>
+            <div class="code-block">
+# 创建 ns1 的 frr.conf 文件
+cat << EOF | sudo tee /etc/frr/ns1/frr.conf
+frr version 7.5
+frr defaults traditional
+hostname ns1
+log syslog informational
+service integrated-vtysh-config
+!
+router ospf
+ ospf router-id 192.168.1.1
+ network 10.0.1.0/24 area 0
+ network 10.0.2.0/24 area 0
+ network 192.168.1.0/24 area 0
+!
+line vty
+!
+EOF
+
+# 创建 ns2 的 frr.conf 文件
+cat << EOF | sudo tee /etc/frr/ns2/frr.conf
+frr version 7.5
+frr defaults traditional
+hostname ns2
+log syslog informational
+service integrated-vtysh-config
+!
+router ospf
+ ospf router-id 192.168.2.1
+ network 10.0.1.0/24 area 0
+ network 10.0.3.0/24 area 0
+ network 192.168.2.0/24 area 0
+!
+line vty
+!
+EOF
+
+# 创建 ns3 的 frr.conf 文件
+cat << EOF | sudo tee /etc/frr/ns3/frr.conf
+frr version 7.5
+frr defaults traditional
+hostname ns3
+log syslog informational
+service integrated-vtysh-config
+!
+router ospf
+ ospf router-id 192.168.3.1
+ network 10.0.2.0/24 area 0
+ network 10.0.3.0/24 area 0
+ network 192.168.3.0/24 area 0
+!
+line vty
+!
+EOF
+</div>
+        </section>
+
+        <section>
+            <h2>启动 FRRouting</h2>
+            <p>现在我们需要在每个网络命名空间中启动 FRRouting。</p>
+            
+            <h3>创建运行脚本</h3>
+            <div class="code-block">
+# 创建运行脚本
+cat << EOF | sudo tee /tmp/start_frr.sh
+#!/bin/bash
+
+# 停止主机上的 FRR
+sudo systemctl stop frr
+
+# 在 ns1 中启动 FRR
+sudo ip netns exec ns1 /usr/lib/frr/zebra -d -f /etc/frr/ns1/zebra.conf -z /tmp/ns1_zebra.sock -i /tmp/ns1_zebra.pid
+sudo ip netns exec ns1 /usr/lib/frr/ospfd -d -f /etc/frr/ns1/ospfd.conf -z /tmp/ns1_zebra.sock -i /tmp/ns1_ospfd.pid
+
+# 在 ns2 中启动 FRR
+sudo ip netns exec ns2 /usr/lib/frr/zebra -d -f /etc/frr/ns2/zebra.conf -z /tmp/ns2_zebra.sock -i /tmp/ns2_zebra.pid
+sudo ip netns exec ns2 /usr/lib/frr/ospfd -d -f /etc/frr/ns2/ospfd.conf -z /tmp/ns2_zebra.sock -i /tmp/ns2_ospfd.pid
+
+# 在 ns3 中启动 FRR
+sudo ip netns exec ns3 /usr/lib/frr/zebra -d -f /etc/frr/ns3/zebra.conf -z /tmp/ns3_zebra.sock -i /tmp/ns3_zebra.pid
+sudo ip netns exec ns3 /usr/lib/frr/ospfd -d -f /etc/frr/ns3/ospfd.conf -z /tmp/ns3_zebra.sock -i /tmp/ns3_ospfd.pid
+EOF
+
+# 设置执行权限
+sudo chmod +x /tmp/start_frr.sh
+
+# 运行脚本
+sudo /tmp/start_frr.sh
+</div>
+            
+            <h3>验证 FRR 是否运行</h3>
+            <div class="code-block">
+# 检查进程
+ps aux | grep frr
+</div>
+        </section>
+
+        <section>
+            <h2>验证 OSPF 配置</h2>
+            <p>现在我们需要验证 OSPF 是否正常工作。</p>
+            
+            <h3>检查 OSPF 邻居</h3>
+            <div class="code-block">
+# 在 ns1 中检查 OSPF 邻居
+sudo ip netns exec ns1 vtysh -c "show ip ospf neighbor"
+
+# 在 ns2 中检查 OSPF 邻居
+sudo ip netns exec ns2 vtysh -c "show ip ospf neighbor"
+
+# 在 ns3 中检查 OSPF 邻居
+sudo ip netns exec ns3 vtysh -c "show ip ospf neighbor"
+</div>
+            
+            <h3>检查 OSPF 路由</h3>
+            <div class="code-block">
+# 在 ns1 中检查 OSPF 路由
+sudo ip netns exec ns1 vtysh -c "show ip ospf route"
+
+# 在 ns2 中检查 OSPF 路由
+sudo ip netns exec ns2 vtysh -c "show ip ospf route"
+
+# 在 ns3 中检查 OSPF 路由
+sudo ip netns exec ns3 vtysh -c "show ip ospf route"
+</div>
+            
+            <h3>检查 IP 路由表</h3>
+            <div class="code-block">
+# 在 ns1 中检查 IP 路由表
+sudo ip netns exec ns1 ip route
+
+# 在 ns2 中检查 IP 路由表
+sudo ip netns exec ns2 ip route
+
+# 在 ns3 中检查 IP 路由表
+sudo ip netns exec ns3 ip route
+</div>
+        </section>
+
+        <section>
+            <h2>测试连通性</h2>
+            <p>现在我们需要测试网络连通性，验证 OSPF 是否正确地发现了所有路由。</p>
+            
+            <h3>测试直接连接</h3>
+            <div class="code-block">
+# 从 ns1 ping ns2
+sudo ip netns exec ns1 ping -c 3 10.0.1.2
+
+# 从 ns1 ping ns3
+sudo ip netns exec ns1 ping -c 3 10.0.2.2
+
+# 从 ns2 ping ns3
+sudo ip netns exec ns2 ping -c 3 10.0.3.2
+</div>
+            
+            <h3>测试环回接口</h3>
+            <div class="code-block">
+# 从 ns1 ping ns2 的环回接口
+sudo ip netns exec ns1 ping -c 3 192.168.2.1
+
+# 从 ns1 ping ns3 的环回接口
+sudo ip netns exec ns1 ping -c 3 192.168.3.1
+
+# 从 ns2 ping ns3 的环回接口
+sudo ip netns exec ns2 ping -c 3 192.168.3.1
+</div>
+            
+            <h3>使用 traceroute 查看路径</h3>
+            <div class="code-block">
+# 从 ns1 到 ns2 的环回接口
+sudo ip netns exec ns1 traceroute 192.168.2.1
+
+# 从 ns1 到 ns3 的环回接口
+sudo ip netns exec ns1 traceroute 192.168.3.1
+
+# 从 ns2 到 ns3 的环回接口
+sudo ip netns exec ns2 traceroute 192.168.3.1
+</div>
+        </section>
+
+        <section>
+            <h2>模拟链路故障</h2>
+            <p>现在我们将模拟链路故障，观察 OSPF 如何自动调整路由。</p>
+            
+            <h3>关闭 ns1 和 ns2 之间的链路</h3>
+            <div class="code-block">
+# 关闭 ns1 和 ns2 之间的链路
+sudo ip netns exec ns1 ip link set veth1-2 down
+sudo ip netns exec ns2 ip link set veth2-1 down
+
+# 等待 OSPF 收敛
+sleep 30
+</div>
+            
+            <h3>检查 OSPF 邻居</h3>
+            <div class="code-block">
+# 在 ns1 中检查 OSPF 邻居
+sudo ip netns exec ns1 vtysh -c "show ip ospf neighbor"
+
+# 在 ns2 中检查 OSPF 邻居
+sudo ip netns exec ns2 vtysh -c "show ip ospf neighbor"
+</div>
+            
+            <h3>检查 IP 路由表</h3>
+            <div class="code-block">
+# 在 ns1 中检查 IP 路由表
+sudo ip netns exec ns1 ip route
+
+# 在 ns2 中检查 IP 路由表
+sudo ip netns exec ns2 ip route
+</div>
+            
+            <h3>测试连通性</h3>
+            <div class="code-block">
+# 从 ns1 ping ns2 的环回接口
+sudo ip netns exec ns1 ping -c 3 192.168.2.1
+
+# 使用 traceroute 查看路径
+sudo ip netns exec ns1 traceroute 192.168.2.1
+</div>
+            
+            <p>你应该看到 ns1 到 ns2 的流量现在通过 ns3 转发，这是因为 OSPF 检测到直接链路故障，自动切换到备用路径。</p>
+        </section>
+
+        <section>
+            <h2>恢复链路</h2>
+            <p>现在我们将恢复链路，观察 OSPF 如何再次调整路由。</p>
+            
+            <h3>启用 ns1 和 ns2 之间的链路</h3>
+            <div class="code-block">
+# 启用 ns1 和 ns2 之间的链路
+sudo ip netns exec ns1 ip link set veth1-2 up
+sudo ip netns exec ns2 ip link set veth2-1 up
+
+# 等待 OSPF 收敛
+sleep 30
+</div>
+            
+            <h3>检查 OSPF 邻居</h3>
+            <div class="code-block">
+# 在 ns1 中检查 OSPF 邻居
+sudo ip netns exec ns1 vtysh -c "show ip ospf neighbor"
+
+# 在 ns2 中检查 OSPF 邻居
+sudo ip netns exec ns2 vtysh -c "show ip ospf neighbor"
+</div>
+            
+            <h3>检查 IP 路由表</h3>
+            <div class="code-block">
+# 在 ns1 中检查 IP 路由表
+sudo ip netns exec ns1 ip route
+
+# 在 ns2 中检查 IP 路由表
+sudo ip netns exec ns2 ip route
+</div>
+            
+            <h3>测试连通性</h3>
+            <div class="code-block">
+# 从 ns1 ping ns2 的环回接口
+sudo ip netns exec ns1 ping -c 3 192.168.2.1
+
+# 使用 traceroute 查看路径
+sudo ip netns exec ns1 traceroute 192.168.2.1
+</div>
+            
+            <p>你应该看到 ns1 到 ns2 的流量现在又通过直接链路转发，这是因为 OSPF 检测到链路恢复，自动切换回最优路径。</p>
+        </section>
+
+        <section>
+            <h2>清理实验环境</h2>
+            <p>实验完成后，我们需要清理环境。</p>
+            
+            <h3>停止 FRRouting</h3>
+            <div class="code-block">
+# 创建清理脚本
+cat << EOF | sudo tee /tmp/stop_frr.sh
+#!/bin/bash
+
+# 杀死 FRR 进程
+sudo kill \$(ps aux | grep '[f]rr' | awk '{print \$2}')
+
+# 启动主机上的 FRR
+sudo systemctl start frr
+EOF
+
+# 设置执行权限
+sudo chmod +x /tmp/stop_frr.sh
+
+# 运行脚本
+sudo /tmp/stop_frr.sh
+</div>
+            
+            <h3>删除网络命名空间</h3>
+            <div class="code-block">
+# 删除网络命名空间
+sudo ip netns delete ns1
+sudo ip netns delete ns2
+sudo ip netns delete ns3
+
+# 验证删除结果
+ip netns list
+</div>
+            
+            <h3>删除配置文件</h3>
+            <div class="code-block">
+# 删除配置文件
+sudo rm -rf /etc/frr/ns1
+sudo rm -rf /etc/frr/ns2
+sudo rm -rf /etc/frr/ns3
+sudo rm -f /tmp/ns*
+sudo rm -f /tmp/start_frr.sh
+sudo rm -f /tmp/stop_frr.sh
+</div>
+        </section>
+
+        <section>
+            <h2>总结</h2>
+            <p>在这个实验中，我们成功地在 Linux 网络命名空间环境中配置了 OSPF 路由。我们观察到 OSPF 如何自动发现路由，并在链路故障和恢复时自动调整路由。这展示了 OSPF 作为一种动态路由协议的强大功能。</p>
+            
+            <p>主要收获：</p>
+            <ul>
+                <li>OSPF 可以自动发现网络拓扑，无需手动配置路由</li>
+                <li>OSPF 可以在链路故障时自动切换到备用路径</li>
+                <li>OSPF 可以在链路恢复时自动切换回最优路径</li>
+                <li>在 Linux 网络命名空间环境中配置 OSPF 需要一些特殊的步骤，但基本原理与物理网络相同</li>
+            </ul>
+            
+            <p>下一步，你可以尝试更复杂的 OSPF 配置，如区域划分、路由汇总、路由重分发等。这些高级配置将在 <a href="veth-routing-dynamic-ospf-advanced.html">OSPF 高级配置</a> 页面中介绍。</p>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <ul>
+                <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                <li><a href="veth-advanced-topologies.html">Veth 对高级网络拓扑</a></li>
+                <li><a href="veth-routing-advanced.html">Veth 对高级路由配置</a></li>
+                <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf.html">OSPF 路由配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf-advanced.html">OSPF 高级配置</a></li>
+                <li><a href="veth-routing-dynamic-rip.html">RIP 路由配置</a></li>
+                <li><a href="veth-routing-dynamic-bgp.html">BGP 路由配置</a></li>
+                <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                <li><a href="veth-security.html">Veth 对网络隔离与安全</a></li>
+            </ul>
+            <div class="navigation-buttons">
+                <a href="veth-routing-dynamic-ospf.html" class="button">上一页：OSPF 路由配置</a>
+                <a href="veth-routing-dynamic-ospf-advanced.html" class="button">下一页：OSPF 高级配置</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

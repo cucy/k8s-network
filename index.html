@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes (K8S) 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html" class="active">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="overlay-networks.html">Overlay 网络</a></li>
+                    <li><a href="geneve-technology.html">Geneve 技术</a></li>
+                    <li><a href="wireguard-overlay.html">WireGuard</a></li>
+                    <li><a href="ebpf-networking.html">eBPF 网络</a></li>
+                    <li><a href="cni-overlay-integration.html">CNI与Overlay集成</a></li>
+                    <li><a href="network-troubleshooting.html">网络故障排查</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Kubernetes 网络概述</h2>
+            <p>Kubernetes（简称K8S）是一个开源的容器编排平台，它可以自动化容器的部署、扩展和管理。网络是Kubernetes中最复杂但也是最核心的部分之一。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/k8s-overview.svg" class="diagram">
+                    Kubernetes 网络概览图
+                </object>
+            </div>
+            
+            <p>Kubernetes网络模型基于以下四个基本原则：</p>
+            <ul>
+                <li><strong>所有Pod之间可以不通过NAT直接通信</strong></li>
+                <li><strong>所有节点可以不通过NAT与所有Pod通信</strong></li>
+                <li><strong>Pod内部的IP地址与其他Pod或节点看到的相同</strong></li>
+                <li><strong>每个Pod都有自己的IP地址</strong></li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Kubernetes 网络模型</h2>
+            <p>Kubernetes网络模型涉及多个层次的网络通信：</p>
+            
+            <div class="card-container">
+                <div class="card" onclick="location.href='pod-network.html'">
+                    <h3>Pod 网络</h3>
+                    <p>Pod内部容器间通信以及Pod之间的通信机制</p>
+                </div>
+                <div class="card" onclick="location.href='service-network.html'">
+                    <h3>Service 网络</h3>
+                    <p>Service抽象和ClusterIP、NodePort、LoadBalancer等服务类型</p>
+                </div>
+                <div class="card" onclick="location.href='ingress.html'">
+                    <h3>Ingress</h3>
+                    <p>外部访问集群服务的HTTP/HTTPS路由机制</p>
+                </div>
+                <div class="card" onclick="location.href='cni.html'">
+                    <h3>CNI 插件</h3>
+                    <p>容器网络接口及常见网络插件(Calico, Flannel等)</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>动手实验</h2>
+            <p>通过实际操作来深入理解Kubernetes网络原理。</p>
+            <a href="experiments.html" class="button">查看实验</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

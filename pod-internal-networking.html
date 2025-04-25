@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pod 内部网络 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Pod 内部网络</h2>
+            <p>Pod 是 Kubernetes 中的最小部署单元，由一个或多个容器组成。Pod 内部的网络设计是 Kubernetes 网络模型的基础，它使得同一 Pod 内的容器能够像在同一主机上运行的进程一样进行通信。本页将深入探讨 Pod 内部网络的工作原理和实现细节。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/pod-internal-network.svg" class="diagram">
+                    Pod 内部网络示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 内部网络模型</h2>
+            <p>Kubernetes Pod 的一个核心特性是其内部的所有容器共享同一个网络命名空间。这种设计有以下几个关键特点：</p>
+            
+            <div class="experiment-card">
+                <h3>共享网络命名空间</h3>
+                <p>在 Linux 中，网络命名空间是一种隔离机制，它为一组进程提供独立的网络栈，包括网络接口、路由表、iptables 规则等。在 Kubernetes 中：</p>
+                <ul>
+                    <li>每个 Pod 都有自己的网络命名空间</li>
+                    <li>Pod 内的所有容器共享这个网络命名空间</li>
+                    <li>这种共享是通过 Docker/containerd 的 <code>--net=container:&lt;id&gt;</code> 功能实现的</li>
+                </ul>
+                <p>共享网络命名空间意味着 Pod 内的所有容器：</p>
+                <ul>
+                    <li>共享同一个 IP 地址和 MAC 地址</li>
+                    <li>共享同一套网络接口</li>
+                    <li>共享同一个端口空间（port space）</li>
+                    <li>共享同一个路由表</li>
+                    <li>共享同一套 iptables/netfilter 规则</li>
+                </ul>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Pause 容器（Infrastructure Container）</h3>
+                <p>在 Kubernetes 中，每个 Pod 都有一个特殊的容器，称为 "pause" 容器或基础设施容器（Infrastructure Container）。这个容器有几个重要作用：</p>
+                <ul>
+                    <li>创建和持有 Pod 的网络命名空间</li>
+                    <li>作为 Pod 内所有容器的父容器，提供 PID 命名空间（在启用 PID 共享的情况下）</li>
+                    <li>处理已终止容器的僵尸进程</li>
+                    <li>使 Pod 的生命周期不依赖于任何特定的应用容器</li>
+                </ul>
+                <p>pause 容器通常非常小（几 MB），几乎不消耗资源，它的唯一目的就是作为 Pod 内其他容器的"基础设施"。</p>
+                <div class="code-block">
+# 查看节点上的 pause 容器
+docker ps | grep pause
+
+# 或者在 containerd 环境中
+crictl ps | grep pause
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 内部通信机制</h2>
+            <p>Pod 内部容器间的通信非常简单高效，因为它们共享同一个网络命名空间。这种设计带来了几个重要的通信特性：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">localhost 通信</div>
+                    <div class="tab">端口管理</div>
+                    <div class="tab">IPC 通信</div>
+                    <div class="tab">共享卷</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>通过 localhost 通信</h3>
+                        <p>由于共享网络命名空间，Pod 内的容器可以通过 localhost（127.0.0.1）直接相互通信，就像在同一台主机上运行的进程一样。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>容器 A 在特定端口（如 8080）上启动服务</li>
+                            <li>容器 B 可以通过 <code>localhost:8080</code> 访问容器 A 的服务</li>
+                            <li>这种通信完全在内核内部进行，不经过任何网络设备，因此性能极高</li>
+                        </ol>
+                        
+                        <h4>示例：</h4>
+                        <div class="code-block">
+# 在容器 A 中启动 Web 服务
+# Dockerfile 片段
+FROM nginx
+EXPOSE 80
+
+# 在容器 B 中访问容器 A 的服务
+# 容器 B 的命令
+curl localhost:80
+                        </div>
+                        
+                        <p>这种通信方式的优点：</p>
+                        <ul>
+                            <li>极低的延迟，因为数据不经过网络栈</li>
+                            <li>无需 NAT 或路由</li>
+                            <li>简化了应用程序的配置，无需处理跨容器的网络寻址</li>
+                            <li>安全性更高，通信不经过外部网络</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>端口管理</h3>
+                        <p>由于 Pod 内的容器共享同一个端口空间，这意味着它们必须协调端口使用，以避免冲突。</p>
+                        
+                        <h4>端口分配考虑：</h4>
+                        <ul>
+                            <li>Pod 内的不同容器不能在同一端口上监听</li>
+                            <li>如果容器 A 使用了端口 8080，那么容器 B 就不能再使用这个端口</li>
+                            <li>Pod 内的端口分配需要在设计时考虑，或通过配置文件协调</li>
+                        </ul>
+                        
+                        <h4>端口冲突处理：</h4>
+                        <p>在 Kubernetes 中，可以通过以下方式处理潜在的端口冲突：</p>
+                        <ul>
+                            <li>在 Pod 规范中明确定义每个容器使用的端口</li>
+                            <li>使用不同的端口范围（如系统服务使用低端口，应用服务使用高端口）</li>
+                            <li>使用动态端口分配（让应用自动选择可用端口）</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# Pod 规范中的端口定义示例
+apiVersion: v1
+kind: Pod
+metadata:
+  name: multi-container-pod
+spec:
+  containers:
+  - name: web
+    image: nginx
+    ports:
+    - containerPort: 80
+  - name: api
+    image: my-api
+    ports:
+    - containerPort: 8080
+                        </div>
+                        
+                        <p>注意：<code>containerPort</code> 字段主要是文档性质的，不会实际限制容器使用其他端口，但它有助于明确记录端口使用情况。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>IPC 通信</h3>
+                        <p>除了网络命名空间外，Pod 内的容器还可以共享 IPC（进程间通信）命名空间，这使得它们可以使用 System V IPC 或 POSIX 消息队列等机制进行通信。</p>
+                        
+                        <h4>IPC 共享机制：</h4>
+                        <ul>
+                            <li>共享内存段（Shared Memory Segments）</li>
+                            <li>信号量（Semaphores）</li>
+                            <li>消息队列（Message Queues）</li>
+                            <li>命名管道（Named Pipes）</li>
+                        </ul>
+                        
+                        <h4>示例：使用共享内存通信</h4>
+                        <div class="code-block">
+# 在容器 A 中创建共享内存段
+# C 代码片段
+int shmid = shmget(KEY, SIZE, IPC_CREAT | 0666);
+char *shm = shmat(shmid, NULL, 0);
+strcpy(shm, "Hello from container A");
+
+# 在容器 B 中访问共享内存段
+# C 代码片段
+int shmid = shmget(KEY, SIZE, 0666);
+char *shm = shmat(shmid, NULL, 0);
+printf("Message: %s\n", shm);
+                        </div>
+                        
+                        <p>IPC 通信的优点：</p>
+                        <ul>
+                            <li>比网络通信更高效，特别是对于大量数据交换</li>
+                            <li>可以实现更复杂的同步机制</li>
+                            <li>适合需要低延迟的应用场景</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>共享卷</h3>
+                        <p>虽然不是严格意义上的网络通信，但共享卷是 Pod 内容器间交换数据的另一种重要方式。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>在 Pod 规范中定义一个卷（Volume）</li>
+                            <li>将该卷挂载到多个容器中</li>
+                            <li>容器可以通过写入/读取该卷来交换数据</li>
+                        </ol>
+                        
+                        <h4>示例：</h4>
+                        <div class="code-block">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: shared-volume-pod
+spec:
+  containers:
+  - name: producer
+    image: busybox
+    volumeMounts:
+    - name: shared-data
+      mountPath: /data
+    command: ["/bin/sh", "-c", "while true; do echo $(date) > /data/date.txt; sleep 10; done"]
+  - name: consumer
+    image: busybox
+    volumeMounts:
+    - name: shared-data
+      mountPath: /data
+    command: ["/bin/sh", "-c", "while true; do cat /data/date.txt; sleep 10; done"]
+  volumes:
+  - name: shared-data
+    emptyDir: {}
+                        </div>
+                        
+                        <p>共享卷的优点：</p>
+                        <ul>
+                            <li>简单直观，易于理解和使用</li>
+                            <li>适合传输大文件或持久化数据</li>
+                            <li>可以用于配置文件共享、日志收集等场景</li>
+                            <li>支持多种卷类型，包括 emptyDir、hostPath、configMap、secret 等</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 内部网络实现细节</h2>
+            <p>了解 Pod 内部网络的实现细节有助于更深入地理解 Kubernetes 网络模型。以下是一些关键的实现细节：</p>
+            
+            <div class="experiment-card">
+                <h3>网络命名空间创建过程</h3>
+                <p>Pod 的网络命名空间创建过程如下：</p>
+                <ol>
+                    <li>kubelet 接收到创建 Pod 的指令</li>
+                    <li>kubelet 调用容器运行时（如 Docker 或 containerd）创建 pause 容器</li>
+                    <li>pause 容器创建一个新的网络命名空间</li>
+                    <li>CNI 插件为这个网络命名空间配置网络（分配 IP 地址、设置路由等）</li>
+                    <li>应用容器使用 <code>--net=container:&lt;pause-container-id&gt;</code> 参数加入 pause 容器的网络命名空间</li>
+                </ol>
+                <div class="code-block">
+# 查看 Pod 的网络命名空间
+# 获取 pause 容器的进程 ID
+PAUSE_PID=$(docker inspect --format '{{.State.Pid}}' $(docker ps | grep pause | grep <pod-name> | awk '{print $1}'))
+
+# 查看网络命名空间的内容
+sudo nsenter -t $PAUSE_PID -n ip addr
+sudo nsenter -t $PAUSE_PID -n ip route
+sudo nsenter -t $PAUSE_PID -n iptables -L
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>容器网络接口</h3>
+                <p>在 Pod 的网络命名空间中，通常会有以下网络接口：</p>
+                <ul>
+                    <li><strong>lo</strong>：回环接口，用于 localhost 通信</li>
+                    <li><strong>eth0</strong>：主网络接口，连接到节点网络</li>
+                    <li>可能的其他接口，如 CNI 插件创建的附加接口</li>
+                </ul>
+                <p>这些接口对 Pod 内的所有容器都是可见的，它们共享这些接口的所有功能。</p>
+                <div class="code-block">
+# 在 Pod 内查看网络接口
+kubectl exec -it <pod-name> -- ip addr
+
+# 典型输出
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN 
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+3: eth0@if12: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP 
+    link/ether 0a:58:0a:f4:03:08 brd ff:ff:ff:ff:ff:ff
+    inet 10.244.3.8/24 scope global eth0
+       valid_lft forever preferred_lft forever
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>DNS 配置</h3>
+                <p>Pod 内的所有容器也共享相同的 DNS 配置，这由 kubelet 通过修改 <code>/etc/resolv.conf</code> 文件实现。</p>
+                <p>典型的 Pod DNS 配置包括：</p>
+                <ul>
+                    <li>集群 DNS 服务器地址（如 kube-dns 或 CoreDNS）</li>
+                    <li>搜索域，通常包括当前命名空间和集群域</li>
+                    <li>可能的 DNS 策略选项</li>
+                </ul>
+                <div class="code-block">
+# 查看 Pod 的 DNS 配置
+kubectl exec -it <pod-name> -- cat /etc/resolv.conf
+
+# 典型输出
+nameserver 10.96.0.10
+search default.svc.cluster.local svc.cluster.local cluster.local
+options ndots:5
+                </div>
+                <p>这种共享 DNS 配置确保了 Pod 内的所有容器都能使用相同的服务发现机制。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 内部网络的应用场景</h2>
+            <p>Pod 内部网络模型适用于多种应用场景，以下是一些常见的使用模式：</p>
+            
+            <div class="experiment-card">
+                <h3>Sidecar 模式</h3>
+                <p>在 Sidecar 模式中，主应用容器旁边运行一个辅助容器，提供额外的功能。</p>
+                <p>示例场景：</p>
+                <ul>
+                    <li>日志收集：主容器生成日志，sidecar 容器收集并转发日志</li>
+                    <li>代理：sidecar 容器作为代理，处理主容器的网络流量</li>
+                    <li>监控：sidecar 容器收集主容器的指标数据</li>
+                </ul>
+                <p>在这种模式下，sidecar 容器可以通过 localhost 直接访问主容器的服务，无需经过网络。</p>
+                <div class="code-block">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-with-proxy
+spec:
+  containers:
+  - name: web
+    image: nginx
+    ports:
+    - containerPort: 80
+  - name: proxy
+    image: envoy
+    ports:
+    - containerPort: 8080
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Ambassador 模式</h3>
+                <p>Ambassador 模式是 Sidecar 的一种特殊形式，其中辅助容器作为外部服务的代理。</p>
+                <p>示例场景：</p>
+                <ul>
+                    <li>数据库代理：简化主容器与数据库的连接</li>
+                    <li>服务网格：实现高级流量管理功能</li>
+                    <li>API 网关：处理认证、限流等横切关注点</li>
+                </ul>
+                <div class="code-block">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-ambassador
+spec:
+  containers:
+  - name: app
+    image: my-app
+    env:
+    - name: DB_HOST
+      value: "localhost"
+    - name: DB_PORT
+      value: "3306"
+  - name: db-ambassador
+    image: db-proxy
+    ports:
+    - containerPort: 3306
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Adapter 模式</h3>
+                <p>Adapter 模式使用辅助容器来转换主容器的输出，使其符合系统的标准。</p>
+                <p>示例场景：</p>
+                <ul>
+                    <li>日志格式转换：将应用特定的日志格式转换为标准格式</li>
+                    <li>指标适配：将应用指标转换为 Prometheus 格式</li>
+                    <li>协议转换：在不同协议之间进行转换</li>
+                </ul>
+                <div class="code-block">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-adapter
+spec:
+  containers:
+  - name: app
+    image: legacy-app
+    ports:
+    - containerPort: 8080
+  - name: metrics-adapter
+    image: metrics-adapter
+    ports:
+    - containerPort: 9090
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Init 容器</h3>
+                <p>虽然 Init 容器不会与主容器同时运行，但它们共享同一个 Pod 的卷，可以用于准备环境。</p>
+                <p>示例场景：</p>
+                <ul>
+                    <li>数据初始化：准备主容器需要的数据</li>
+                    <li>等待依赖服务：在主容器启动前检查依赖服务是否可用</li>
+                    <li>配置生成：动态生成配置文件</li>
+                </ul>
+                <div class="code-block">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-init
+spec:
+  initContainers:
+  - name: init-db
+    image: busybox
+    command: ['sh', '-c', 'until nslookup db-service; do echo waiting for db; sleep 2; done;']
+  containers:
+  - name: app
+    image: my-app
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 内部网络的最佳实践</h2>
+            <p>在设计和使用 Pod 内部网络时，可以参考以下最佳实践：</p>
+            
+            <h3>1. 容器职责划分</h3>
+            <ul>
+                <li>遵循单一职责原则，每个容器只负责一个功能</li>
+                <li>避免在一个容器中运行多个进程</li>
+                <li>使用适当的设计模式（Sidecar、Ambassador、Adapter）组织容器</li>
+            </ul>
+            
+            <h3>2. 端口管理</h3>
+            <ul>
+                <li>明确定义每个容器使用的端口，避免冲突</li>
+                <li>在 Pod 规范中使用 <code>containerPort</code> 字段记录端口使用情况</li>
+                <li>考虑使用不同的端口范围分隔不同类型的服务</li>
+            </ul>
+            
+            <h3>3. 资源共享</h3>
+            <ul>
+                <li>使用共享卷进行大数据量交换</li>
+                <li>对于需要频繁交互的容器，考虑使用 IPC 机制</li>
+                <li>合理设置卷的访问权限，避免意外修改</li>
+            </ul>
+            
+            <h3>4. 安全考虑</h3>
+            <ul>
+                <li>注意 Pod 内容器间的安全边界较弱</li>
+                <li>不要在同一个 Pod 中混合运行不同信任级别的容器</li>
+                <li>使用 securityContext 限制容器的权限</li>
+                <li>考虑使用网络策略限制 Pod 的对外通信</li>
+            </ul>
+            
+            <h3>5. 监控和调试</h3>
+            <ul>
+                <li>为每个容器配置适当的健康检查</li>
+                <li>收集和分析容器日志</li>
+                <li>监控容器的资源使用情况</li>
+                <li>使用 <code>kubectl exec</code> 进入容器进行调试</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>故障排除</h2>
+            <p>在 Pod 内部网络中可能遇到的常见问题及解决方法：</p>
+            
+            <div class="experiment-card">
+                <h3>端口冲突</h3>
+                <p>症状：容器启动失败，日志中显示端口已被使用</p>
+                <p>解决方法：</p>
+                <ul>
+                    <li>检查 Pod 中的所有容器使用的端口</li>
+                    <li>修改容器配置，使用不同的端口</li>
+                    <li>使用动态端口分配</li>
+                </ul>
+                <div class="code-block">
+# 检查容器使用的端口
+kubectl exec -it <pod-name> -- netstat -tulpn
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>容器间通信问题</h3>
+                <p>症状：一个容器无法通过 localhost 访问另一个容器的服务</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>目标容器的服务未正确启动</li>
+                    <li>服务监听在错误的地址上（如只监听 127.0.0.1 而非 0.0.0.0）</li>
+                    <li>防火墙或安全策略阻止了连接</li>
+                </ul>
+                <p>解决方法：</p>
+                <div class="code-block">
+# 检查服务是否正在运行
+kubectl exec -it <pod-name> -c <container-name> -- ps aux
+
+# 检查服务监听的地址和端口
+kubectl exec -it <pod-name> -c <container-name> -- netstat -tulpn
+
+# 测试连接
+kubectl exec -it <pod-name> -c <client-container> -- curl -v localhost:<port>
+
+# 检查防火墙规则
+kubectl exec -it <pod-name> -c <container-name> -- iptables -L
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>共享卷问题</h3>
+                <p>症状：容器无法读写共享卷</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>卷挂载路径错误</li>
+                    <li>权限问题</li>
+                    <li>卷类型不支持所需的操作</li>
+                </ul>
+                <p>解决方法：</p>
+                <div class="code-block">
+# 检查卷挂载情况
+kubectl describe pod <pod-name>
+
+# 检查卷内容和权限
+kubectl exec -it <pod-name> -c <container-name> -- ls -la <mount-path>
+
+# 尝试创建测试文件
+kubectl exec -it <pod-name> -c <container-name> -- touch <mount-path>/test.txt
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <p>要了解更多关于 Pod 内部网络的信息，可以参考以下资源：</p>
+            <ul>
+                <li><a href="pod-network.html">Pod 网络概述</a></li>
+                <li><a href="pod-ip-allocation.html">Pod IP 分配机制</a></li>
+                <li><a href="network-namespaces.html">Linux 网络命名空间</a></li>
+                <li><a href="pod-to-pod-networking.html">Pod 间通信</a></li>
+            </ul>
+            <a href="pod-to-pod-networking.html" class="button">了解 Pod 间通信</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

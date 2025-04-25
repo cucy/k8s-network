@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Pod 网络 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html" class="active">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Pod 网络原理</h2>
+            <p>Pod是Kubernetes中最小的可部署单元，每个Pod都有自己的IP地址。Pod网络是Kubernetes网络模型的基础，理解Pod网络对于掌握Kubernetes网络至关重要。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/pod-network.svg" class="diagram">
+                    Pod 网络示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod 网络模型</h2>
+            <p>Kubernetes的Pod网络模型基于以下几个关键概念：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Pod IP</div>
+                    <div class="tab">Pod内部通信</div>
+                    <div class="tab">Pod间通信</div>
+                    <div class="tab">跨节点通信</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>Pod IP 分配</h3>
+                        <p>在Kubernetes中，每个Pod都会被分配一个唯一的IP地址。这个IP地址来自于集群的Pod CIDR网段，由网络插件（CNI）负责分配。</p>
+                        <p>重要特点：</p>
+                        <ul>
+                            <li>Pod的IP地址在整个集群中是唯一的</li>
+                            <li>Pod的IP地址是临时的，当Pod重启或重新调度时，IP地址可能会改变</li>
+                            <li>集群中的所有节点和Pod都可以直接通过Pod IP进行通信，无需NAT</li>
+                        </ul>
+                        <p>Pod IP分配通常由CNI插件管理，不同的CNI插件可能使用不同的IP分配策略。例如，Calico可以使用IPAM（IP地址管理）来分配IP地址，而Flannel则使用主机的子网来分配。</p>
+                        <p>了解更多关于<a href="pod-ip-allocation.html">Pod IP分配机制</a>的详细信息。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Pod内部容器间通信</h3>
+                        <p>在同一个Pod内的所有容器共享同一个网络命名空间，这意味着它们：</p>
+                        <ul>
+                            <li>共享同一个IP地址</li>
+                            <li>可以通过localhost互相访问</li>
+                            <li>共享同一套网络接口</li>
+                            <li>可以看到相同的网络流量</li>
+                        </ul>
+                        <p>这种设计使得同一Pod内的容器可以像在同一台主机上运行的进程一样进行通信，非常高效且简单。</p>
+                        <div class="code-block">
+# 在Pod内的容器之间通信示例
+# 容器1可以通过localhost访问容器2的服务
+curl localhost:8080
+                        </div>
+                        <p>了解更多关于<a href="pod-internal-networking.html">Pod内部网络</a>的详细信息。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Pod间通信</h3>
+                        <p>在同一节点上的不同Pod之间的通信通过虚拟以太网设备对（veth pair）和Linux网桥实现：</p>
+                        <ol>
+                            <li>每个Pod都有一个虚拟以太网接口（veth）连接到主机上的网桥</li>
+                            <li>网桥负责在同一节点上的Pod之间转发数据包</li>
+                            <li>Pod可以直接使用对方的Pod IP进行通信</li>
+                        </ol>
+                        <p>这种通信方式无需NAT转换，是直接的二层网络通信。</p>
+                        <div class="code-block">
+# 查看Pod的网络接口
+kubectl exec -it my-pod -- ip addr show
+
+# 从一个Pod访问另一个Pod
+kubectl exec -it pod-1 -- curl 10.244.1.2:80
+                        </div>
+                        <p>了解更多关于<a href="pod-to-pod-networking.html">Pod间通信</a>的详细信息。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>跨节点Pod通信</h3>
+                        <p>当Pod需要与位于不同节点上的Pod通信时，数据包需要穿越物理网络。Kubernetes网络模型要求所有Pod之间能够直接通信，无需NAT。这通常通过以下方式实现：</p>
+                        <ul>
+                            <li><strong>Overlay网络</strong>：如Flannel的VXLAN模式，通过在UDP数据包中封装Pod网络流量</li>
+                            <li><strong>直接路由</strong>：如Calico，通过在节点间配置路由表实现Pod网络互通</li>
+                            <li><strong>BGP路由</strong>：通过边界网关协议在节点间分发路由信息</li>
+                        </ul>
+                        <p>不同的CNI插件采用不同的方法来实现跨节点通信，但最终目标都是确保任意两个Pod之间可以直接通信。</p>
+                        <p>了解更多关于<a href="cross-node-networking.html">跨节点Pod通信</a>的详细信息。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod网络实现原理</h2>
+            <p>Pod网络的实现涉及多个Linux网络技术：</p>
+            
+            <div class="interactive">
+                <h3>Linux网络命名空间</h3>
+                <p>Kubernetes使用Linux网络命名空间来隔离Pod的网络栈。每个Pod都有自己的网络命名空间，包含独立的网络接口、路由表和iptables规则。</p>
+                <div class="code-block">
+# 查看节点上的网络命名空间
+sudo ip netns list
+
+# 查看特定Pod的网络命名空间
+POD_ID=$(docker ps | grep k8s_POD | awk '{print $1}')
+sudo nsenter --net=/proc/$(docker inspect -f '{{.State.Pid}}' $POD_ID)/ns/net ip addr
+                </div>
+                <p>了解更多关于<a href="network-namespaces.html">Linux网络命名空间</a>在Kubernetes中的应用。</p>
+                
+                <h3>虚拟以太网设备对（veth pair）</h3>
+                <p>veth pair是一对虚拟网络接口，一端连接到Pod的网络命名空间，另一端连接到主机的网络命名空间。它们像一个管道，允许数据包在两个网络命名空间之间传输。</p>
+                <p>了解更多关于<a href="veth-pairs.html">veth pair</a>的工作原理。</p>
+                
+                <h3>网桥</h3>
+                <p>主机上的网桥（如cbr0、docker0或cni0）将所有Pod的veth接口连接起来，使同一节点上的Pod能够相互通信。</p>
+                <div class="code-block">
+# 查看主机上的网桥
+ip link show type bridge
+
+# 查看网桥上连接的接口
+bridge link show
+                </div>
+                <p>了解更多关于<a href="network-bridges.html">网桥</a>在Pod网络中的作用。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>深入了解Pod网络</h2>
+            <p>要更深入地了解Kubernetes Pod网络的各个方面，请访问以下专题页面：</p>
+            
+            <div class="card-container">
+                <div class="card" onclick="location.href='pod-ip-allocation.html'">
+                    <h3>Pod IP分配机制</h3>
+                    <p>深入了解Pod IP地址是如何分配和管理的</p>
+                </div>
+                <div class="card" onclick="location.href='pod-internal-networking.html'">
+                    <h3>Pod内部网络</h3>
+                    <p>探索Pod内部容器间通信的实现原理</p>
+                </div>
+                <div class="card" onclick="location.href='pod-to-pod-networking.html'">
+                    <h3>Pod间通信</h3>
+                    <p>了解同一节点上不同Pod之间的通信机制</p>
+                </div>
+                <div class="card" onclick="location.href='cross-node-networking.html'">
+                    <h3>跨节点Pod通信</h3>
+                    <p>深入研究不同节点上Pod之间的通信实现</p>
+                </div>
+                <div class="card" onclick="location.href='network-namespaces.html'">
+                    <h3>网络命名空间</h3>
+                    <p>详解Linux网络命名空间在K8s中的应用</p>
+                </div>
+                <div class="card" onclick="location.href='veth-pairs.html'">
+                    <h3>veth pair技术</h3>
+                    <p>探索虚拟以太网设备对的工作原理</p>
+                </div>
+                <div class="card" onclick="location.href='network-bridges.html'">
+                    <h3>网桥技术</h3>
+                    <p>了解Linux网桥在Pod网络中的关键作用</p>
+                </div>
+                <div class="card" onclick="location.href='overlay-networks.html'">
+                    <h3>Overlay网络</h3>
+                    <p>深入解析VXLAN等Overlay网络技术</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pod网络排障</h2>
+            <p>在排查Pod网络问题时，可以使用以下命令和工具：</p>
+            
+            <div class="experiment-card">
+                <h3>常用网络排障命令</h3>
+                <div class="code-block">
+# 检查Pod的IP地址和网络接口
+kubectl exec -it <pod-name> -- ip addr
+
+# 测试Pod之间的连通性
+kubectl exec -it <pod-name> -- ping <target-pod-ip>
+
+# 查看Pod的DNS配置
+kubectl exec -it <pod-name> -- cat /etc/resolv.conf
+
+# 跟踪网络包路径
+kubectl exec -it <pod-name> -- traceroute <target-ip>
+
+# 查看节点上的路由表
+ip route
+
+# 检查iptables规则
+sudo iptables -t nat -L
+                </div>
+            </div>
+            <p>了解更多关于<a href="pod-network-troubleshooting.html">Pod网络排障</a>的详细技术和方法。</p>
+        </section>
+
+        <section>
+            <h2>Pod网络限制</h2>
+            <p>Kubernetes的Pod网络也有一些限制和注意事项：</p>
+            <ul>
+                <li>Pod IP是临时的，当Pod重启或重新调度时会改变</li>
+                <li>不同的CNI插件可能有不同的网络性能和特性</li>
+                <li>大规模集群中的Pod IP管理可能变得复杂</li>
+                <li>某些网络环境可能不支持直接的Pod-to-Pod通信，需要特殊配置</li>
+            </ul>
+            <p>为了解决这些限制，Kubernetes引入了Service抽象，提供稳定的网络端点。</p>
+            <a href="service-network.html" class="button">了解Service网络</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

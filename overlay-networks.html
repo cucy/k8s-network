@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overlay网络 | Kubernetes 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+    <style>
+        /* 修复导航栏样式 */
+        nav ul {
+            overflow: auto;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="overlay-networks.html" class="active">Overlay 网络</a></li>
+                    <li><a href="geneve-technology.html">Geneve 技术</a></li>
+                    <li><a href="wireguard-overlay.html">WireGuard</a></li>
+                    <li><a href="network-troubleshooting.html">网络故障排查</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Overlay网络技术</h2>
+            <p>Overlay网络是Kubernetes中实现跨节点Pod通信的关键技术之一。它通过在现有物理网络（Underlay）之上构建虚拟网络层，使不同节点上的Pod能够像在同一个局域网中一样进行通信，而无需修改底层网络基础设施。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/overlay-network.svg" class="diagram">
+                    Overlay网络示意图
+                </object>
+            </div>
+            <p class="diagram-caption">图1: Kubernetes集群中的Overlay网络架构</p>
+        </section>
+
+        <section>
+            <h2>Overlay网络原理</h2>
+            <p>Overlay网络的核心原理是通过封装（Encapsulation）技术，将Pod网络的数据包封装在底层物理网络的数据包中进行传输。这种方式使得Pod网络与底层物理网络解耦，提供了更大的灵活性和可扩展性。</p>
+            
+            <div class="info-box">
+                <h3>Overlay网络的关键概念</h3>
+                <ul>
+                    <li><strong>封装（Encapsulation）</strong>：将原始数据包作为负载，封装在外部数据包中</li>
+                    <li><strong>隧道（Tunnel）</strong>：在两个网络端点之间建立的虚拟连接</li>
+                    <li><strong>VTEP（VXLAN Tunnel Endpoint）</strong>：负责执行封装和解封装的网络设备</li>
+                    <li><strong>VNI（VXLAN Network Identifier）</strong>：用于标识不同的虚拟网络</li>
+                </ul>
+            </div>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">工作流程</div>
+                    <div class="tab">优势</div>
+                    <div class="tab">挑战</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>Overlay网络工作流程</h3>
+                        <p>当一个Pod需要与另一个节点上的Pod通信时，Overlay网络的工作流程如下：</p>
+                        <ol>
+                            <li><strong>路由决策</strong>：源Pod发送数据包到目标Pod的IP地址，节点上的路由表将该流量引导到Overlay网络设备</li>
+                            <li><strong>查找目标节点</strong>：Overlay网络查找目标Pod所在的节点IP地址（通常通过分布式数据库或控制平面）</li>
+                            <li><strong>封装数据包</strong>：原始数据包被封装在外部数据包中，添加外部IP头（源为当前节点IP，目标为目标节点IP）</li>
+                            <li><strong>通过物理网络传输</strong>：封装后的数据包通过底层物理网络传输到目标节点</li>
+                            <li><strong>解封装</strong>：目标节点接收到封装数据包后，移除外部头部，提取原始数据包</li>
+                            <li><strong>转发到目标Pod</strong>：解封装后的原始数据包被转发到目标Pod</li>
+                        </ol>
+                        <p>整个过程对Pod是透明的，Pod认为它们直接通过Pod网络进行通信，而不知道底层的封装和解封装过程。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Overlay网络的优势</h3>
+                        <ul>
+                            <li><strong>网络隔离</strong>：不同的Overlay网络可以使用相同的IP地址范围，互不干扰</li>
+                            <li><strong>与底层网络解耦</strong>：Pod网络可以独立于底层物理网络进行设计和管理</li>
+                            <li><strong>跨子网通信</strong>：无需修改底层网络路由即可实现跨子网的Pod通信</li>
+                            <li><strong>多租户支持</strong>：可以为不同租户创建隔离的网络环境</li>
+                            <li><strong>可移植性</strong>：Kubernetes集群可以部署在几乎任何网络环境中，包括公有云、私有云和本地数据中心</li>
+                            <li><strong>简化网络管理</strong>：底层网络只需要提供基本的IP连通性，复杂的网络策略可以在Overlay层实现</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Overlay网络的挑战</h3>
+                        <ul>
+                            <li><strong>性能开销</strong>：封装和解封装过程会引入额外的CPU开销和延迟</li>
+                            <li><strong>MTU考虑</strong>：封装会增加数据包大小，可能需要调整MTU以避免分片</li>
+                            <li><strong>故障排查复杂性</strong>：多层网络使得问题定位和排查更加复杂</li>
+                            <li><strong>额外的网络开销</strong>：封装头部会增加网络带宽使用</li>
+                            <li><strong>可能的安全考虑</strong>：封装可能会绕过某些网络安全设备的检查</li>
+                        </ul>
+                        <p>尽管存在这些挑战，但在大多数Kubernetes部署中，Overlay网络的优势远大于其缺点，特别是在需要大规模Pod网络的环境中。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>常见的Overlay网络技术</h2>
+            <p>在Kubernetes生态系统中，有多种Overlay网络技术被广泛使用，每种技术都有其独特的特点和适用场景。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/overlay-comparison.svg" class="diagram">
+                    Overlay网络技术比较
+                </object>
+            </div>
+            <p class="diagram-caption">图2: 常见Overlay网络技术比较</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">VXLAN (Virtual Extensible LAN)</div>
+                    <div class="accordion-content">
+                        <p>VXLAN是目前最流行的Overlay网络技术之一，由RFC 7348定义。它通过UDP封装二层以太网帧，使得虚拟网络可以跨越三层网络边界。</p>
+                        <h4>VXLAN特点：</h4>
+                        <ul>
+                            <li>使用UDP作为传输协议（默认端口4789）</li>
+                            <li>支持1600万个虚拟网络（24位VNI）</li>
+                            <li>广泛的硬件和软件支持</li>
+                            <li>封装开销较大（约50字节）</li>
+                        </ul>
+                        <h4>在Kubernetes中的应用：</h4>
+                        <p>Flannel的VXLAN模式是最常见的实现，此外Calico、Cilium等CNI插件也支持VXLAN模式。</p>
+                        <div class="code-block">
+# 查看VXLAN接口
+ip -d link show type vxlan
+
+# 查看VXLAN转发表
+bridge fdb show dev flannel.1
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">Geneve (Generic Network Virtualization Encapsulation)</div>
+                    <div class="accordion-content">
+                        <p>Geneve是一种更新的网络虚拟化封装协议，旨在解决VXLAN和其他早期协议的局限性。它提供了更灵活的封装格式和可扩展的元数据支持。</p>
+                        <h4>Geneve特点：</h4>
+                        <ul>
+                            <li>使用UDP作为传输协议（默认端口6081）</li>
+                            <li>支持可扩展的TLV（Type-Length-Value）格式</li>
+                            <li>更好的元数据和控制平面集成</li>
+                            <li>设计用于支持网络功能虚拟化（NFV）</li>
+                        </ul>
+                        <h4>在Kubernetes中的应用：</h4>
+                        <p>Antrea和OVN-Kubernetes等较新的CNI插件使用Geneve作为其Overlay技术。</p>
+                        <div class="code-block">
+# 查看Geneve接口
+ip -d link show type geneve
+
+# 查看Geneve隧道信息
+ovs-vsctl show | grep geneve
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <h

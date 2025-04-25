@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+    <!-- 定义渐变和滤镜 -->
+    <defs>
+        <!-- 命名空间背景渐变 -->
+        <linearGradient id="namespaceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#e6f7ff;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#bae7ff;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 网络设备背景渐变 -->
+        <linearGradient id="deviceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#f6ffed;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#d9f7be;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 1 -->
+        <linearGradient id="vethGradient1" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#ffa39e;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ff7875;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 2 -->
+        <linearGradient id="vethGradient2" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#ffc069;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ffa940;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- veth 连接渐变 3 -->
+        <linearGradient id="vethGradient3" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#b7eb8f;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#95de64;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 数据包渐变 -->
+        <linearGradient id="packetGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#fff0f6;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ffadd2;stop-opacity:1" />
+        </linearGradient>
+        
+        <!-- 阴影效果 -->
+        <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#333" flood-opacity="0.3"/>
+        </filter>
+        
+        <!-- 箭头标记 1 -->
+        <marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff7875"/>
+        </marker>
+        
+        <!-- 箭头标记 2 -->
+        <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#ffa940"/>
+        </marker>
+        
+        <!-- 箭头标记 3 -->
+        <marker id="arrow3" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#95de64"/>
+        </marker>
+        
+        <!-- 数据包箭头标记 -->
+        <marker id="packetArrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#f759ab"/>
+        </marker>
+    </defs>
+    
+    <!-- 背景 -->
+    <rect width="800" height="600" fill="#f5f5f5" />
+    
+    <!-- 标题 -->
+    <text x="400" y="30" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#333">三角形网络拓扑</text>
+    <text x="400" y="60" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#666">三个网络命名空间通过 Veth 对两两直接连接</text>
+    
+    <!-- 命名空间 ns1 -->
+    <g id="ns1">
+        <rect x="320" y="100" width="160" height="160" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="400" y="125" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns1</text>
+        
+        <!-- ns1 的设备 -->
+        <rect x="340" y="140" width="120" height="40" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="400" y="160" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth1-1 (10.0.1.1/24)</text>
+        <text x="400" y="175" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#666">连接到 ns2</text>
+        
+        <rect x="340" y="190" width="120" height="40" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="400" y="210" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth3-1 (10.0.3.1/24)</text>
+        <text x="400" y="225" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#666">连接到 ns3</text>
+        
+        <!-- ns1 的路由表 -->
+        <rect x="340" y="240" width="120" height="15" rx="2" ry="2" fill="#fff" stroke="#d9d9d9" stroke-width="1" />
+        <text x="400" y="251" font-family="Arial, sans-serif" font-size="8" text-anchor="middle" fill="#666">10.0.2.0/24 via 10.0.1.2</text>
+    </g>
+    
+    <!-- 命名空间 ns2 -->
+    <g id="ns2">
+        <rect x="120" y="320" width="160" height="160" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="200" y="345" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns2</text>
+        
+        <!-- ns2 的设备 -->
+        <rect x="140" y="360" width="120" height="40" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="200" y="380" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth1-2 (10.0.1.2/24)</text>
+        <text x="200" y="395" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#666">连接到 ns1</text>
+        
+        <rect x="140" y="410" width="120" height="40" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="200" y="430" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth2-2 (10.0.2.2/24)</text>
+        <text x="200" y="445" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#666">连接到 ns3</text>
+        
+        <!-- ns2 的路由表 -->
+        <rect x="140" y="460" width="120" height="15" rx="2" ry="2" fill="#fff" stroke="#d9d9d9" stroke-width="1" />
+        <text x="200" y="471" font-family="Arial, sans-serif" font-size="8" text-anchor="middle" fill="#666">10.0.3.0/24 via 10.0.2.3</text>
+    </g>
+    
+    <!-- 命名空间 ns3 -->
+    <g id="ns3">
+        <rect x="520" y="320" width="160" height="160" rx="10" ry="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="2" filter="url(#shadow)" />
+        <text x="600" y="345" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">命名空间 ns3</text>
+        
+        <!-- ns3 的设备 -->
+        <rect x="540" y="360" width="120" height="40" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="600" y="380" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth2-3 (10.0.2.3/24)</text>
+        <text x="600" y="395" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#666">连接到 ns2</text>
+        
+        <rect x="540" y="410" width="120" height="40" rx="5" ry="5" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="600" y="430" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">veth3-3 (10.0.3.3/24)</text>
+        <text x="600" y="445" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#666">连接到 ns1</text>
+        
+        <!-- ns3 的路由表 -->
+        <rect x="540" y="460" width="120" height="15" rx="2" ry="2" fill="#fff" stroke="#d9d9d9" stroke-width="1" />
+        <text x="600" y="471" font-family="Arial, sans-serif" font-size="8" text-anchor="middle" fill="#666">10.0.1.0/24 via 10.0.3.1</text>
+    </g>
+    
+    <!-- Veth 连接 -->
+    <!-- ns1 到 ns2 的连接 -->
+    <path d="M 360 180 C 300,240 250,300 200 360" stroke="url(#vethGradient1)" stroke-width="3" fill="none" marker-end="url(#arrow1)" />
+    <text x="270" y="230" font-family="Arial, sans-serif" font-size="12" fill="#333" transform="rotate(-45 270 230)">10.0.1.0/24</text>
+    
+    <!-- ns2 到 ns3 的连接 -->
+    <path d="M 260 430 L 540 380" stroke="url(#vethGradient2)" stroke-width="3" fill="none" marker-end="url(#arrow2)" />
+    <text x="400" y="390" font-family="Arial, sans-serif" font-size="12" fill="#333">10.0.2.0/24</text>
+    
+    <!-- ns3 到 ns1 的连接 -->
+    <path d="M 600 360 C 550,300 500,240 440 210" stroke="url(#vethGradient3)" stroke-width="3" fill="none" marker-end="url(#arrow3)" />
+    <text x="530" y="230" font-family="Arial, sans-serif" font-size="12" fill="#333" transform="rotate(45 530 230)">10.0.3.0/24</text>
+    
+    <!-- 数据包示例 -->
+    <g class="packet packet1" transform="translate(320, 180)">
+        <rect x="-25" y="-15" width="50" height="30" rx="5" ry="5" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="5" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <g class="packet packet2" transform="translate(350, 380)">
+        <rect x="-25" y="-15" width="50" height="30" rx="5" ry="5" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="5" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <g class="packet packet3" transform="translate(520, 280)">
+        <rect x="-25" y="-15" width="50" height="30" rx="5" ry="5" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="0" y="5" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#333">数据包</text>
+    </g>
+    
+    <!-- 路由路径示例 -->
+    <path d="M 400 260 C 350,300 300,340 260 430" stroke="#666" stroke-width="1.5" stroke-dasharray="5,3" />
+    <path d="M 260 430 L 540 380" stroke="#666" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#packetArrow)" />
+    <text x="400" y="320" font-family="Arial, sans-serif" font-size="10" fill="#666">从 ns1 到 ns3 的间接路由</text>
+    
+    <!-- 图例 -->
+    <g id="legend" transform="translate(50, 520)">
+        <rect x="0" y="0" width="15" height="10" fill="url(#namespaceGradient)" stroke="#69c0ff" stroke-width="1" />
+        <text x="20" y="9" font-family="Arial, sans-serif" font-size="10" fill="#333">网络命名空间</text>
+        
+        <rect x="150" y="0" width="15" height="10" fill="url(#deviceGradient)" stroke="#95de64" stroke-width="1" />
+        <text x="170" y="9" font-family="Arial, sans-serif" font-size="10" fill="#333">Veth 设备</text>
+        
+        <line x1="300" y1="5" x2="330" y2="5" stroke="url(#vethGradient1)" stroke-width="3" marker-end="url(#arrow1)" />
+        <text x="340" y="9" font-family="Arial, sans-serif" font-size="10" fill="#333">Veth 对连接</text>
+        
+        <line x1="450" y1="5" x2="480" y2="5" stroke="#666" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#packetArrow)" />
+        <text x="490" y="9" font-family="Arial, sans-serif" font-size="10" fill="#333">路由路径</text>
+        
+        <rect x="600" y="0" width="15" height="10" fill="url(#packetGradient)" stroke="#f759ab" stroke-width="1" />
+        <text x="620" y="9" font-family="Arial, sans-serif" font-size="10" fill="#333">数据包</text>
+    </g>
+    
+    <!-- 说明文本 -->
+    <g id="description" transform="translate(50, 550)">
+        <text x="0" y="0" font-family="Arial, sans-serif" font-size="12" fill="#333">三角形拓扑特点：</text>
+        <text x="0" y="20" font-family="Arial, sans-serif" font-size="12" fill="#333">• 每个命名空间都可以直接与其他两个命名空间通信</text>
+        <text x="0" y="40" font-family="Arial, sans-serif" font-size="12" fill="#333">• 需要为每个命名空间创建两对 Veth 设备</text>
+        <text x="0" y="60" font-family="Arial, sans-serif" font-size="12" fill="#333">• 路由配置相对简单</text>
+        <text x="400" y="20" font-family="Arial, sans-serif" font-size="12" fill="#333">• 适合小规模网络</text>
+        <text x="400" y="40" font-family="Arial, sans-serif" font-size="12" fill="#333">• 随着命名空间数量增加，连接数量呈指数增长</text>
+        <text x="400" y="60" font-family="Arial, sans-serif" font-size="12" fill="#333">• 可以实现最短路径通信</text>
+    </g>
+    
+    <!-- 动画 -->
+    <style>
+        @keyframes movePacket1 {
+            0% { transform: translate(320, 180); }
+            50% { transform: translate(200, 360); }
+            100% { transform: translate(320, 180); }
+        }
+        
+        @keyframes movePacket2 {
+            0% { transform: translate(350, 380); }
+            50% { transform: translate(540, 380); }
+            100% { transform: translate(350, 380); }
+        }
+        
+        @keyframes movePacket3 {
+            0% { transform: translate(520, 280); }
+            50% { transform: translate(400, 210); }
+            100% { transform: translate(520, 280); }
+        }
+        
+        .packet1 {
+            animation: movePacket1 8s infinite;
+        }
+        
+        .packet2 {
+            animation: movePacket2 8s infinite;
+            animation-delay: 2s;
+        }
+        
+        .packet3 {
+            animation: movePacket3 8s infinite;
+            animation-delay: 4s;
+        }
+    </style>
+</svg>

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跨节点 Pod 通信 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>跨节点 Pod 通信</h2>
+            <p>在 Kubernetes 集群中，Pod 可能分布在不同的节点上，但 Kubernetes 网络模型要求所有 Pod 之间能够直接通信，无需 NAT。本页将深入探讨不同节点上 Pod 之间的通信机制，以及各种 CNI 插件的实现方式。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/cross-node-network.svg" class="diagram">
+                    跨节点 Pod 通信示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>跨节点通信的挑战</h2>
+            <p>与同节点 Pod 通信相比，跨节点 Pod 通信面临更多挑战：</p>
+            <ul>
+                <li>Pod IP 地址通常是私有的，不能在物理网络上直接路由</li>
+                <li>不同节点可能位于不同的子网或网络段</li>
+                <li>节点之间可能有防火墙或其他网络设备</li>
+                <li>需要考虑性能、安全性和可扩展性</li>
+            </ul>
+            
+            <p>为了解决这些挑战，Kubernetes 网络插件（CNI）采用了多种技术方案，主要分为以下几类：</p>
+            <ul>
+                <li><strong>Overlay 网络</strong>：在现有网络之上创建虚拟网络，如 VXLAN、Geneve、IPsec</li>
+                <li><strong>路由方案</strong>：通过配置网络设备的路由表，实现 Pod 网络的互通</li>
+                <li><strong>BGP 方案</strong>：使用边界网关协议分发路由信息</li>
+                <li><strong>隧道方案</strong>：使用 IP 隧道技术封装 Pod 流量</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>跨节点通信实现方案</h2>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Overlay 网络</div>
+                    <div class="tab">直接路由</div>
+                    <div class="tab">BGP 路由</div>
+                    <div class="tab">隧道技术</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>Overlay 网络</h3>
+                        <p>Overlay 网络是最常见的跨节点 Pod 通信方案，它在物理网络之上创建虚拟网络层。</p>
+                        
+                        <h4>VXLAN (Virtual Extensible LAN)</h4>
+                        <p>VXLAN 是一种常用的 Overlay 网络技术，它通过 UDP 封装二层以太网帧。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>Pod A 发送数据包到 Pod B（位于不同节点）</li>
+                            <li>数据包到达 Pod A 所在节点的网络栈</li>
+                            <li>节点检查路由表，发现目标 IP 属于 Pod 网络</li>
+                            <li>VXLAN 驱动将原始数据包封装在 UDP 数据包中</li>
+                            <li>封装后的 UDP 数据包通过物理网络发送到目标节点</li>
+                            <li>目标节点接收 UDP 数据包，解封装出原始数据包</li>
+                            <li>解封装后的数据包通过本地路由发送到目标 Pod</li>
+                        </ol>
+                        
+                        <div class="code-block">
+# 查看 VXLAN 接口
+ip -d link show type vxlan
+
+# 查看 VXLAN FDB 表（转发数据库）
+bridge fdb show dev flannel.1
+                        </div>
+                        
+                        <p>VXLAN 的优缺点：</p>
+                        <ul>
+                            <li><strong>优点</strong>：不依赖底层网络支持，适用于几乎所有环境</li>
+                            <li><strong>缺点</strong>：有额外的封装/解封装开销，可能影响性能</li>
+                        </ul>
+                        
+                        <p>使用 VXLAN 的 CNI 插件包括 Flannel（VXLAN 模式）、Calico（VXLAN 模式）、Weave Net 等。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>直接路由</h3>
+                        <p>直接路由方案不使用封装，而是通过配置网络设备的路由表，使 Pod 网络可直接路由。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>每个节点分配一个 Pod CIDR 子网（如节点 A 为 10.244.1.0/24，节点 B 为 10.244.2.0/24）</li>
+                            <li>在每个节点上添加路由规则，指向其他节点的 Pod 子网</li>
+                            <li>当 Pod A 发送数据包到 Pod B 时，数据包根据路由表直接发送到 Pod B 所在的节点</li>
+                            <li>目标节点接收数据包，并根据本地路由将其转发到目标 Pod</li>
+                        </ol>
+                        
+                        <div class="code-block">
+# 查看节点上的路由表
+ip route
+
+# 典型的直接路由规则
+# 10.244.2.0/24 via 192.168.1.102 dev eth0
+                        </div>
+                        
+                        <p>直接路由的优缺点：</p>
+                        <ul>
+                            <li><strong>优点</strong>：无封装开销，性能更好</li>
+                            <li><strong>缺点</strong>：要求底层网络支持 Pod CIDR 的路由，不适用于所有环境</li>
+                        </ul>
+                        
+                        <p>使用直接路由的 CNI 插件包括 Flannel（host-gw 模式）、Calico（BGP 模式下的直接路由）等。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>BGP 路由</h3>
+                        <p>BGP（边界网关协议）是一种动态路由协议，可以在节点之间分发路由信息。</p>
+                        
+                        <h4>工作原理：</h4>
+                        <ol>
+                            <li>每个节点运行 BGP 客户端（如 BIRD）</li>
+                            <li>节点通过 BGP 协议向其他节点或路由器通告自己的 Pod CIDR</li>
+                            <li>其他节点接收这些路由信息，并更新自己的路由表</li>
+                            <li>当 Pod 需要跨节点通信时，数据包根据 BGP 分发的路由信息直接发送到目标节点</li>
+                        </ol>
+                        
+                        <p>BGP 路由可以有两种模式：</p>
+                        <ul>
+                            <li><strong>完全网状（Full mesh）</strong>：每个节点与所有其他节点建立 BGP 连接</li>
+                            <li><strong>路由反射器（Route Reflector）</strong>：使用中心节点反射路由信息，减少连接数</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 查看 BGP 会话状态（Calico 示例）
+calicoctl node status
+
+# 查看 BGP 路由信息
+ip route | grep bgp
+                        </div>
+                        
+                        <p>BGP 路由的优缺点：</p>
+                        <ul>
+                            <li><strong>优点</strong>：无封装开销，性能好；可以与现有网络基础设施集成</li>
+                            <li><strong>缺点</strong>：配置相对复杂；要求网络设备支持 BGP</li>
+                        </ul>
+                        
+                        <p>使用 BGP 路由的 CNI 插件主要是 Calico。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>隧道技术</h3>
+                        <p>隧道技术是 Overlay 网络的一种形式，但使用不同的封装协议。</p>
+                        
+                        <h4>常见的隧道技术：</h4>
+                        <ul>
+                            <li><strong>IPIP</strong>：将 IP 数据包封装在另一个 IP 数据包中</li>
+                            <li><strong>GRE</strong>：通用路由封装，支持多种协议</li>
+                            <li><strong>Geneve</strong>：通用网络虚拟化封装，VXLAN 的后继者</li>
+                            <li><strong>WireGuard</strong>：现代、安全的 VPN 隧道协议</li>
+                        </ul>
+                        
+                        <h4>IPIP 隧道工作原理：</h4>
+                        <ol>
+                            <li>Pod A 发送数据包到 Pod B</li>
+                            <li>源节点将原始 IP 数据包封装在外部 IP 数据包中</li>
+                            <li>外部 IP 数据包的源地址是源节点的 IP，目标地址是目标节点的 IP</li>
+                            <li>封装后的数据包通过物理网络发送到目标节点</li>
+                            <li>目标节点接收数据包，解封装出原始 IP 数据包</li>
+                            <li>解封装后的数据包通过本地路由发送到目标 Pod</li>
+                        </ol>
+                        
+                        <div class="code-block">
+# 查看 IPIP 隧道接口
+ip -d link show type ipip
+
+# 查看隧道相关路由
+ip route | grep tunl0
+                        </div>
+                        
+                        <p>隧道技术的优缺点：</p>
+                        <ul>
+                            <li><strong>优点</strong>：不依赖底层网络支持；某些隧道协议（如 WireGuard）提供内置加密</li>
+                            <li><strong>缺点</strong>：有封装开销；某些隧道协议可能不被所有环境支持</li>
+                        </ul>
+                        
+                        <p>使用隧道技术的 CNI 插件包括 Calico（IPIP 模式）、Flannel（GRE 模式）等。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>主要 CNI 插件的跨节点通信实现</h2>
+            
+            <div class="experiment-card">
+                <h3>Flannel</h3>
+                <p>Flannel 支持多种跨节点通信后端：</p>
+                
+                <h4>1. VXLAN 模式（默认）</h4>
+                <ul>
+                    <li>使用 VXLAN 封装，创建 flannel.1 接口</li>
+                    <li>维护 VTEP（VXLAN 隧道端点）映射表</li>
+                    <li>适用于大多数环境，不依赖特殊网络配置</li>
+                </ul>
+                
+                <h4>2. host-gw 模式</h4>
+                <ul>
+                    <li>使用直接路由，无封装</li>
+                    <li>要求节点在同一二层网络</li>
+                    <li>性能更好，但适用范围更窄</li>
+                </ul>
+                
+                <h4>3. UDP 模式（已弃用）</h4>
+                <ul>
+                    <li>使用 UDP 封装，但性能较差</li>
+                    <li>主要用于不支持 VXLAN 的环境</li>
+                </ul>
+                
+                <div class="code-block">
+# Flannel 配置示例（ConfigMap）
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: kube-flannel-cfg
+data:
+  net-conf.json: |
+    {
+      "Network": "10.244.0.0/16",
+      "Backend": {
+        "Type": "vxlan"
+      }
+    }
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Calico</h3>
+                <p>Calico 提供了多种跨节点通信选项：</p>
+                
+                <h4>1. BGP 模式（默认）</h4>
+                <ul>
+                    <li>使用 BGP 协议分发路由信息</li>
+                    <li>无封装，直接路由，性能最佳</li>
+                    <li>支持与现有 BGP 路由器集成</li>
+                    <li>支持 AS 号配置和路由策略</li>
+                </ul>
+                
+                <h4>2. IPIP 模式</h4>
+                <ul>
+                    <li>使用 IPIP 隧道封装</li>
+                    <li>适用于不支持直接路由的环境</li>
+                    <li>可以配置为仅在跨子网时使用 IPIP</li>
+                </ul>
+                
+                <h4>3. VXLAN 模式</h4>
+                <ul>
+                    <li>使用 VXLAN 封装，类似于 Flannel</li>
+                    <li>适用于不支持 IPIP 的环境</li>
+                </ul>
+                
+                <div class="code-block">
+# Calico BGP 配置示例
+calicoctl apply -f - << EOF
+apiVersion: projectcalico.org/v3
+kind: IPPool
+metadata:
+  name: default-ipv4-ippool
+spec:
+  cidr: 10.244.0.0/16
+  ipipMode: Never
+  natOutgoing: true
+EOF
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Weave Net</h3>
+                <p>Weave Net 使用自己的跨节点通信机制：</p>
+                
+                <h4>1. 基于 VXLAN 的 Overlay 网络</h4>
+                <ul>
+                    <li>使用 VXLAN 或自定义 UDP 封装</li>
+                    <li>节点之间建立全网状连接</li>
+                    <li>支持自动发现和连接新节点</li>
+                </ul>
+                
+                <h4>2. Fast Datapath</h4>
+                <ul>
+                    <li>使用 VXLAN 内核模块优化性能</li>
+                    <li>当可能时自动切换到 Fast Datapath</li>
+                    <li>结合了 Overlay 网络的兼容性和直接路由的性能</li>
+                </ul>
+                
+                <h4>3. 加密通信</h4>
+                <ul>
+                    <li>支持节点间通信加密（NaCl）</li>
+                    <li>提供安全但有一定性能开销</li>
+                </ul>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>Cilium</h3>
+                <p>Cilium 基于 eBPF 技术，提供高性能的跨节点通信：</p>
+                
+                <h4>1. VXLAN 或 Geneve 封装</h4>
+                <ul>
+                    <li>使用 eBPF 优化的 VXLAN/Geneve 封装</li>
+                    <li>比传统实现更高效</li>
+                </ul>
+                
+                <h4>2. 直接路由</h4>
+                <ul>
+                    <li>支持直接路由模式，无封装</li>
+                    <li>可以与 BGP 集成</li>
+                </ul>
+                
+                <h4>3. WireGuard 加密</h4>
+                <ul>
+                    <li>支持使用 WireGuard 加密节点间通信</li>
+                    <li>提供高性能的加密通信</li>
+                </ul>
+                
+                <h4>4. 身份感知路由</h4>
+                <ul>
+                    <li>基于工作负载身份而非仅 IP 地址进行路由</li>
+                    <li>提供更精细的安全控制</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>跨节点通信的性能考虑</h2>
+            <p>跨节点 Pod 通信的性能受多种因素影响：</p>
+            
+            <h3>影响性能的因素</h3>
+            <ul>
+                <li><strong>通信方案</strong>：直接路由通常比 Overlay 网络性能更好</li>
+                <li><strong>封装开销</strong>：封装和解封装会增加 CPU 使用率和延迟</li>
+                <li><strong>MTU 设置</strong>：封装会减少有效载荷大小，可能导致分片</li>
+                <li><strong>物理网络性能</strong>：底层网络的带宽、延迟和丢包率</li>
+                <li><strong>节点间距离</strong>：节点间的物理或网络距离</li>
+                <li><strong>加密开销</strong>：启用加密会增加处理开销</li>
+            </ul>
+            
+            <h3>性能优化建议</h3>
+            <ul>
+                <li>在支持的环境中，选择直接路由或 BGP 模式而非 Overlay 网络</li>
+                <li>适当增加 MTU 大小，避免分片（考虑封装开销）</li>
+                <li>对于需要频繁通信的 Pod，考虑将它们调度到同一节点</li>
+                <li>使用支持 eBPF 的 CNI 插件（如 Cilium）可以获得更好的性能</li>
+                <li>在不需要加密的环境中，禁用加密功能</li>
+                <li>优化底层网络设备的配置</li>
+            </ul>
+            
+            <div class="code-block">
+# 调整 MTU 示例（Flannel VXLAN）
+# VXLAN 的开销约为 50 字节，所以如果物理网络 MTU 是 1500，
+# 则 flannel.1 的 MTU 应设为 1450
+ip link set dev flannel.1 mtu 1450
+
+# 测试跨节点网络性能
+# 在节点 A 上运行 iperf 服务器
+kubectl run iperf-server --image=networkstatic/iperf3 --port=5201 -- iperf3 -s
+
+# 在节点 B 上运行 iperf 客户端
+kubectl run iperf-client --image=networkstatic/iperf3 --overrides='{"spec": {"nodeName": "node-b"}}' --rm -it -- iperf3 -c iperf-server
+            </div>
+        </section>
+
+        <section>
+            <h2>故障排除</h2>
+            <p>跨节点 Pod 通信中可能遇到的常见问题及解决方法：</p>
+            
+            <div class="experiment-card">
+                <h3>连接问题</h3>
+                <p>症状：不同节点上的 Pod 无法相互通信</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>CNI 插件配置错误</li>
+                    <li>节点间网络连接问题</li>
+                    <li>防火墙阻止了 Pod 网络流量</li>
+                    <li>路由配置错误</li>
+                    <li>MTU 配置不当</li>
+                </ul>
+                <p>排查步骤：</p>
+                <div class="code-block">
+# 测试 Pod 间连通性
+kubectl exec -it <pod-a> -- ping <pod-b-ip>
+
+# 测试节点间连通性
+ping <node-b-ip>
+
+# 检查节点上的路由
+ip route
+
+# 检查 CNI 插件状态
+kubectl get pods -n kube-system -l k8s-app=calico-node
+kubectl logs -n kube-system -l k8s-app=calico-node
+
+# 检查防火墙规则
+iptables -L
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>性能问题</h3>
+                <p>症状：跨节点通信延迟高或吞吐量低</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>使用了 Overlay 网络而非直接路由</li>
+                    <li>MTU 设置不当导致分片</li>
+                    <li>底层网络拥塞</li>
+                    <li>节点资源（CPU/内存）不足</li>
+                </ul>
+                <p>排查步骤：</p>
+                <div class="code-block">
+# 检查 MTU 设置
+ip link show
+
+# 测试网络性能
+kubectl exec -it <pod-a> -- iperf3 -c <pod-b-ip>
+
+# 检查节点资源使用情况
+kubectl top nodes
+
+# 监控网络接口
+sar -n DEV 1
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>封装/路由问题</h3>
+                <p>症状：特定的通信模式失败，如跨子网通信</p>
+                <p>可能原因：</p>
+                <ul>
+                    <li>VXLAN/IPIP 配置错误</li>
+                    <li>BGP 会话未建立</li>
+                    <li>底层网络不支持所选通信模式</li>
+                </ul>
+                <p>排查步骤：</p>
+                <div class="code-block">
+# 检查 VXLAN 接口
+ip -d link show type vxlan
+
+# 检查 BGP 状态（Calico）
+calicoctl node status
+
+# 抓包分析
+tcpdump -i any -n udp port 4789  # VXLAN
+tcpdump -i any -n proto 4  # IPIP
+tcpdump -i any -n tcp port 179  # BGP
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <p>要了解更多关于跨节点 Pod 通信的信息，可以参考以下资源：</p>
+            <ul>
+                <li><a href="pod-network.html">Pod 网络概述</a></li>
+                <li><a href="pod-to-pod-networking.html">Pod 间通信</a></li>
+                <li><a href="overlay-networks.html">Overlay 网络</a></li>
+                <li><a href="cni.html">CNI 插件</a></li>
+            </ul>
+            <a href="network-namespaces.html" class="button">了解网络命名空间</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

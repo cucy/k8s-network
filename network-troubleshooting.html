@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes网络故障排查 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="overlay-networks.html">Overlay 网络</a></li>
+                    <li><a href="geneve-technology.html">Geneve 技术</a></li>
+                    <li><a href="wireguard-overlay.html">WireGuard</a></li>
+                    <li><a href="network-troubleshooting.html" class="active">网络故障排查</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section>
+            <h2>Kubernetes网络故障排查概述</h2>
+            <p>Kubernetes网络是一个复杂的系统，涉及多个层次和组件。当网络问题发生时，系统性的故障排查方法可以帮助您快速定位和解决问题。本指南将提供全面的Kubernetes网络故障排查策略和工具。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/overlay-troubleshooting.svg" class="diagram">
+                    Overlay网络故障排查流程
+                </object>
+            </div>
+            <p class="diagram-caption">图1: Kubernetes网络故障排查流程</p>
+            
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>常见网络问题</h3>
+                    <p>了解Kubernetes中最常见的网络问题类型，包括Pod间通信失败、服务访问问题、DNS解析故障等。</p>
+                </div>
+                <div class="feature">
+                    <h3>排查工具</h3>
+                    <p>掌握网络故障排查的关键工具，如kubectl、tcpdump、netshoot、ping、traceroute等。</p>
+                </div>
+                <div class="feature">
+                    <h3>系统方法</h3>
+                    <p>学习系统性的网络故障排查方法，从应用层到物理网络层逐步排查。</p>
+                </div>
+                <div class="feature">
+                    <h3>最佳实践</h3>
+                    <p>了解Kubernetes网络故障排查的最佳实践和常见陷阱。</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>常见网络问题分类</h2>
+            <p>在Kubernetes环境中，网络问题可以大致分为以下几类。了解这些分类有助于您更有针对性地进行故障排查。</p>
+            
+            <div class="tabs">
+                <div class="tab-headers">
+                    <div class="tab-header active">Pod间通信问题</div>
+                    <div class="tab-header">Service访问问题</div>
+                    <div class="tab-header">DNS解析问题</div>
+                    <div class="tab-header">外部访问问题</div>
+                    <div class="tab-header">CNI插件问题</div>
+                </div>
+                
+                <div class="tab-contents">
+                    <div class="tab-content active">
+                        <h3>Pod间通信问题</h3>
+                        <p>Pod间通信是Kubernetes网络的基础。当Pod之间无法通信时，可能是由多种原因造成的。</p>
+                        
+                        <h4>常见症状：</h4>
+                        <ul>
+                            <li>Pod之间无法ping通</li>
+                            <li>应用连接超时或拒绝连接</li>
+                            <li>跨节点的Pod通信失败，但同节点通信正常</li>
+                        </ul>
+                        
+                        <h4>可能的原因：</h4>
+                        <ul>
+                            <li>CNI插件配置错误或故障</li>
+                            <li>网络策略（NetworkPolicy）阻止了通信</li>
+                            <li>Overlay网络隧道问题（如VXLAN、Geneve等）</li>
+                            <li>MTU配置不当导致的数据包分片问题</li>
+                            <li>节点间网络连接问题</li>
+                            <li>iptables规则错误</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 检查Pod之间的连通性
+kubectl exec -it <pod-name> -- ping <target-pod-ip>
+
+# 检查网络接口和路由
+kubectl exec -it <pod-name> -- ip addr
+kubectl exec -it <pod-name> -- ip route
+
+# 查看CNI配置
+kubectl get cm -n kube-system <cni-config-map> -o yaml
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content">
+                        <h3>Service访问问题</h3>
+                        <p>Kubernetes Service提供了稳定的服务发现和负载均衡机制。Service访问问题通常与kube-proxy或DNS有关。</p>
+                        
+                        <h4>常见症状：</h4>
+                        <ul>
+                            <li>无法通过Service名称或ClusterIP访问服务</li>
+                            <li>Service访问间歇性失败</li>
+                            <li>部分Pod可以访问Service，部分不行</li>
+                        </ul>
+                        
+                        <h4>可能的原因：</h4>
+                        <ul>
+                            <li>Service选择器与Pod标签不匹配</li>
+                            <li>Pod健康检查失败，未被纳入Service端点</li>
+                            <li>kube-proxy未正确运行或配置错误</li>
+                            <li>iptables或IPVS规则问题</li>
+                            <li>DNS解析问题</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 检查Service定义和端点
+kubectl describe svc <service-name>
+kubectl get endpoints <service-name>
+
+# 检查Pod标签是否匹配Service选择器
+kubectl get pods --selector=<key>=<value>
+
+# 检查kube-proxy日志
+kubectl logs -n kube-system -l k8s-app=kube-proxy
+
+# 检查iptables规则
+sudo iptables -t nat -L
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content">
+                        <h3>DNS解析问题</h3>
+                        <p>DNS问题是Kubernetes中最常见的网络问题之一，它会影响服务发现和应用通信。</p>
+                        
+                        <h4>常见症状：</h4>
+                        <ul>
+                            <li>无法解析Service名称</li>
+                            <li>DNS解析缓慢</li>
+                            <li>间歇性DNS解析失败</li>
+                            <li>无法解析外部域名</li>
+                        </ul>
+                        
+                        <h4>可能的原因：</h4>
+                        <ul>
+                            <li>CoreDNS或kube-dns Pod不健康</li>
+                            <li>DNS配置错误</li>
+                            <li>DNS缓存问题</li>
+                            <li>DNS策略配置不当</li>
+                            <li>网络策略阻止了DNS流量</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 检查DNS服务状态
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+kubectl logs -n kube-system -l k8s-app=kube-dns
+
+# 在Pod中测试DNS解析
+kubectl exec -it <pod-name> -- nslookup kubernetes.default.svc.cluster.local
+kubectl exec -it <pod-name> -- cat /etc/resolv.conf
+
+# 检查DNS配置
+kubectl get cm -n kube-system coredns -o yaml
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content">
+                        <h3>外部访问问题</h3>
+                        <p>从集群外部访问Kubernetes服务或从集群内访问外部服务时可能遇到的问题。</p>
+                        
+                        <h4>常见症状：</h4>
+                        <ul>
+                            <li>无法通过NodePort或LoadBalancer访问服务</li>
+                            <li>Ingress路由不正确</li>
+                            <li>Pod无法访问外部网络</li>
+                        </ul>
+                        
+                        <h4>可能的原因：</h4>
+                        <ul>
+                            <li>防火墙规则阻止了流量</li>
+                            <li>NodePort端口未开放</li>
+                            <li>Ingress控制器配置错误</li>
+                            <li>SNAT或DNAT配置问题</li>
+                            <li>云提供商负载均衡器配置不当</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 检查Service和Ingress配置
+kubectl get svc,ing
+
+# 测试NodePort连接
+curl http://<node-ip>:<node-port>
+
+# 检查Pod出站连接
+kubectl exec -it <pod-name> -- curl -v https://www.example.com
+
+# 检查防火墙规则
+sudo iptables -L
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content">
+                        <h3>CNI插件问题</h3>
+                        <p>CNI（容器网络接口）插件负责配置Pod网络。CNI插件问题通常会导致Pod网络完全不可用或性能下降。</p>
+                        
+                        <h4>常见症状：</h4>
+                        <ul>
+                            <li>Pod卡在ContainerCreating状态</li>
+                            <li>Pod无法获取IP地址</li>
+                            <li>网络性能明显下降</li>
+                            <li>特定CNI功能不工作（如网络策略）</li>
+                        </ul>
+                        
+                        <h4>可能的原因：</h4>
+                        <ul>
+                            <li>CNI插件安装不完整或版本不兼容</li>
+                            <li>CNI配置错误</li>
+                            <li>IPAM（IP地址管理）问题，如IP地址耗尽</li>
+                            <li>CNI插件与底层网络不兼容</li>
+                            <li>节点上的CNI二进制文件损坏</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# 检查CNI插件Pod状态
+kubectl get pods -n kube-system -l k8s-app=<cni-app-label>
+
+# 查看CNI日志
+kubectl logs -n kube-system <cni-pod-name>
+
+# 检查节点上的CNI配置
+ls -la /etc/cni/net.d/
+cat /etc/cni/net.d/10-<cni-name>.conf
+
+# 检查CNI二进制文件
+ls -la /opt/cni/bin/
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>系统性故障排查方法</h2>
+            <p>网络故障排查需要系统性的方法，从应用层到物理网络层逐步排查。以下是一个推荐的排查流程。</p>
+            
+            <div class="workflow-steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>确认问题范围</h3>
+                        <p>首先确定问题的影响范围，这有助于缩小可能的原因。</p>
+                        <ul>
+                            <li>是所有Pod都受影响，还是只有特定Pod？</li>
+                            <li>是所有节点都有问题，还是只有特定节点？</li>
+                            <li>问题是持续的还是间歇性的？</li>
+                            <li>最近是否进行了集群更改（升级、配置变更等）？</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>检查Pod和节点状态</h3>
+                        <p>确认所有相关组件的运行状态。</p>
+                        <div class="code-block">
+# 检查Pod状态
+kubectl get pods -A | grep -v Running
+
+# 检查节点状态
+kubectl get nodes
+kubectl describe node <node-name>
+
+# 检查关键系统组件
+kubectl get pods -n kube-system
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>验证基本连通性</h3>
+                        <p>从底层开始验证网络连通性。</p>
+                        <div class="code-block">
+# 检查节点间连通性
+ping <node-ip>
+
+# 检查Pod IP分配
+kubectl get pods -o wide
+
+# 测试Pod间连通性
+kubectl exec -it <pod-name> -- ping <another-pod-ip>
+
+# 测试DNS解析
+kubectl exec -it <pod-name> -- nslookup kubernetes.default
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h3>检查网络配置</h3>
+                        <p>检查CNI和网络相关配置。</p>
+                        <div class="code-block">
+# 检查CNI配置
+kubectl get cm -n kube-system <cni-config-map> -o yaml
+
+# 检查网络策略
+kubectl get networkpolicies --all-namespaces
+
+# 检查节点网络接口
+ip addr
+ip route
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <h3>分析网络流量</h3>
+                        <p>捕获和分析网络流量，查找异常。</p>
+                        <div class="code-block">
+# 捕获Pod网络流量
+kubectl exec -it <pod-name> -- tcpdump -i eth0 -n
+
+# 捕获节点上的CNI流量
+sudo tcpdump -i <cni-interface> -n
+
+# 捕获特定协议流量
+sudo tcpdump -i any udp port 4789 -n  # VXLAN流量
+sudo tcpdump -i any udp port 6081 -n  # Geneve流量
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">6</div>
+                    <div class="step-content">
+                        <h3>检查日志和事件</h3>
+                        <p>查看相关组件的日志和Kubernetes事件。</p>
+                        <div class="code-block">
+# 查看Pod日志
+kubectl logs <pod-name>
+
+# 查看CNI插件日志
+kubectl logs -n kube-system <cni-pod-name>
+
+# 查看kube-proxy日志
+kubectl logs -n kube-system <kube-proxy-pod-name>
+
+# 查看Kubernetes事件
+kubectl get events --sort-by='.lastTimestamp'
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">7</div>
+                    <div class="step-content">
+                        <h3>应用解决方案</h3>
+                        <p>根据发现的问题应用相应的解决方案。</p>
+                        <ul>
+                            <li>重启受影响的Pod或服务</li>
+                            <li>更新CNI配置</li>
+                            <li>修复网络策略</li>
+                            <li>调整MTU设置</li>
+                            <li>更新或回滚CNI插件版本</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>网络故障排查工具</h2>
+            <p>以下是一些在Kubernetes环境中进行网络故障排查的常用工具。掌握这些工具的使用方法可以帮助您更高效地解决网络问题。</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">kubectl</div>
+                    <div class="accordion-content">
+                        <p>kubectl是与Kubernetes集群交互的主要命令行工具，提供了许多用于网络故障排查的子命令。</p>
+                        <h4>常用命令：</h4>
+                        <div class="code-block">
+# 查看Pod网络信息
+kubectl get pods -o wide
+
+# 在Pod中执行命令
+kubectl exec -it <pod-name> -- <command>
+
+# 查看Pod日志
+kubectl logs <pod-name>
+
+# 端口转发
+kubectl port-forward <pod-name> <local-port>:<pod-port>
+
+# 查看Service和Endpoints
+kubectl get svc,ep
+
+# 描述资源详情
+kubectl describe pod/svc/node <name>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">netshoot</div>
+                    <div class="accordion-content">
+                        <p>netshoot是一个包含多种网络工具的容器镜像，非常适合在Kubernetes环境中进行网络故障排查。</p>
+                        <h4>使用方法：</h4>
+                        <div class="code-block">
+# 创建一个netshoot Pod
+kubectl run netshoot --rm -it --image=nicolaka/netshoot
+
+# 或者在现有命名空间中创建
+kubectl run netshoot --rm -it --image=nicolaka/netshoot -n <namespace>
+
+# 在特定节点上运行
+kubectl run netshoot --rm -it --image=nicolaka/netshoot --overrides='{"spec": {"nodeSelector": {"kubernetes.io/hostname": "<node-name>"}}}'
+                        </div>
+                        <p>netshoot包含的工具：ping, traceroute, tcpdump, nslookup, dig, curl, wget, iperf, netstat, nmap等。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">tcpdump和Wireshark</div>
+                    <div class="accordion-content">
+                        <p>tcpdump是一个强大的命令行数据包分析工具，可以捕获和分析网络流量。Wireshark提供了图形界面，可以更直观地分析tcpdump捕获的数据包。</p>
+                        <h4>常用命令：</h4>
+                        <div class="code-block">
+# 在Pod中捕获流量
+kubectl exec -it <pod-name> -- tcpdump -i eth0 -w /tmp/capture.pcap
+
+# 捕获特定协议的流量
+kubectl exec -it <pod-name> -- tcpdump -i eth0 tcp port 80 -n
+
+# 捕获与特定IP通信的流量
+kubectl exec -it <pod-name> -- tcpdump -i eth0 host <ip-address> -n
+
+# 将捕获文件复制到本地进行分析
+kubectl cp <pod-name>:/tmp/capture.pcap ./capture.pcap
+
+# 在本地使用Wireshark分析
+wireshark capture.pcap
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">网络诊断工具</div>
+                    <div class="accordion-content">
+                        <p>以下是一些常用的网络诊断命令，可以在Pod或节点上运行。</p>
+                        <div class="code-block">
+# 检查DNS解析
+nslookup <service-name>
+dig <service-name>
+
+# 测试连接性
+ping <ip-address>
+traceroute <ip-address>
+telnet <ip-address> <port>
+nc -zv <ip-address> <port>
+
+# 查看路由表
+ip route
+route -n
+
+# 查看接口信息
+ip addr
+ifconfig
+
+# 查看连接状态
+netstat -tuln
+ss -tuln
+
+# 测试带宽
+iperf -c <server-ip> -p <port>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">CNI特定工具</div>
+                    <div class="accordion-content">
+                        <p>不同的CNI插件可能提供特定的诊断工具。</p>
+                        <h4>Calico:</h4>
+                        <div class="code-block">
+# 检查Calico节点状态
+calicoctl node status
+
+# 查看Calico网络策略
+calicoctl get networkpolicy
+
+# 查看BGP对等体
+calicoctl node status
+                        </div>
+                        
+                        <h4>Flannel:</h4>
+                        <div class="code-block">
+# 检查VXLAN接口
+ip -d link show flannel.1
+
+# 查看Flannel网络配置
+cat /run/flannel/subnet.env
+
+# 检查VXLAN FDB表
+bridge fdb show dev flannel.1
+                        </div>
+                        
+                        <h4>Cilium:</h4>
+                        <div class="code-block">
+# 检查Cilium状态
+cilium status
+
+# 查看Cilium端点
+cilium endpoint list
+
+# 调试特定端点
+cilium endpoint get <endpoint-id>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Overlay网络特定问题解决方案</h2>
+            <p>Overlay网络在Kubernetes中广泛使用，但也带来了一些特定的故障排查挑战。以下是一些常见的Overlay网络问题及其解决方案。</p>
+            
+            <div class="tips-container">
+                <div class="tip">
+                    <h3>MTU配置问题</h3>
+                    <p>Overlay网络封装会增加数据包大小，如果MTU配置不当，可能导致数据包分片或丢弃。</p>
+                    <h4>症状：</h4>
+                    <ul>
+                        <li>大数据包传输失败，小数据包正常</li>
+                        <li>间歇性连接问题</li>
+                        <li>TCP连接建立但数据传输失败</li>
+                    </ul>
+                    <h4>解决方案：</h4>
+                    <div class="code-block">
+# 检查当前MTU设置
+ip link show
+
+# 对于VXLAN (开销约50字节)，Pod MTU应设置为:
+# 物理网络MTU - 50
+
+# 在Flannel中配置MTU (ConfigMap)
+data:
+  net-conf.json: |
+    {
+      "Network": "10.244.0.0/16",
+      "Backend": {
+        "Type": "vxlan",
+        "VNI": 1,
+        "Port": 4789,
+        "MTU": 1450
+      }
+    }
+
+# 在Calico中配置MTU (ConfigMap)
+data:
+  calico_backend: "vxlan"
+  veth_mtu: "1450"
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>Overlay隧道建立失败</h3>
+                    <p>Overlay网络依赖于节点间的隧道连接，如果隧道无法建立，Pod间通信将失败。</p>
+                    <h4>症状：</h4>
+                    <ul>
+                        <li>跨节点的Pod无法通信</li>
+                        <li>查看隧道接口状态异常</li>
+                        <li>日志中有隧道建立失败的错误</li>
+                    </ul>
+                    <h4>解决方案：</h4>
+                    <div class="code-block">
+# 检查隧道接口状态
+ip -d link show type vxlan  # VXLAN
+ip -d link show type geneve  # Geneve
+ip -d link show type ipip  # IP-in-IP
+
+# 检查UDP端口是否被阻断
+netstat -anup | grep 4789  # VXLAN
+netstat -anup | grep 6081  # Geneve
+
+# 检查节点间连通性
+ping <node-ip>
+
+# 检查防火墙规则
+sudo iptables -L
+
+# 常见需要开放的端口:
+# - VXLAN: UDP 4789
+# - Geneve: UDP 6081
+# - IP-in-IP: Protocol 4
+# - Calico BGP: TCP 179
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>Overlay网络路由问题</h3>
+                    <p>Overlay网络依赖正确的路由表和转发规则，如果这些配置不正确，数据包可能无法到达目的地。</p>
+                    <h4>症状：</h4>
+                    <ul>
+                        <li>特定Pod或子网无法通信</li>
+                        <li>路由表中缺少某些路由</li>
+                        <li>FDB表或ARP表不完整</li>
+                    </ul>
+                    <h4>解决方案：</h4>
+                    <div class="code-block">
+# 检查节点路由表
+ip route | grep -E 'flannel|calico|cni'
+
+# 检查VXLAN FDB表
+bridge fdb show dev flannel.1
+
+# 检查ARP表
+ip neigh
+
+# 重启CNI DaemonSet以重建路由
+kubectl rollout restart ds -n kube-system <cni-daemonset-name>
+
+# 手动添加缺失的路由(临时解决方案)
+ip route add <pod-cidr> via <node-ip> dev <tunnel-interface>
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>Overlay网络性能问题</h3>
+                    <p>Overlay网络可能引入额外的延迟和开销，导致网络性能下降。</p>
+                    <h4>症状：</h4>
+                    <ul>
+                        <li>网络延迟明显高于预期</li>
+                        <li>吞吐量低于直接网络连接</li>
+                        <li>CPU使用率高</li>
+                    </ul>
+                    <h4>解决方案：</h4>
+                    <div class="code-block">
+# 启用VXLAN硬件卸载(如果网卡支持)
+ethtool -k <interface> | grep vxlan
+ethtool -K <interface> tx-udp_tnl-segmentation on
+
+# 考虑使用更轻量级的Overlay技术
+# 例如，Calico可以从VXLAN切换到IP-in-IP或直接路由
+
+# 优化内核参数
+sysctl -w net.core.rmem_max=16777216
+sysctl -w net.core.wmem_max=16777216
+sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
+sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
+
+# 使用跨节点亲和性减少跨节点流量
+# 在Pod规范中添加亲和性规则
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>Overlay网络与网络策略冲突</h3>
+                    <p>网络策略可能与Overlay网络交互，导致意外的通信阻断。</p>
+                    <h4>症状：</h4>
+                    <ul>
+                        <li>应用了网络策略后，某些通信失败</li>
+                        <li>网络策略看起来配置正确，但不生效</li>
+                    </ul>
+                    <h4>解决方案：</h4>
+                    <div class="code-block">
+# 检查网络策略
+kubectl get networkpolicies --all-namespaces
+
+# 确保网络策略允许必要的Overlay流量
+# 例如，允许VXLAN UDP 4789端口
+
+# 临时禁用网络策略进行测试
+kubectl delete networkpolicy <policy-name> -n <namespace>
+
+# 检查CNI插件是否正确支持网络策略
+# 某些CNI插件可能需要额外配置才能支持网络策略
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="related-topics">
+            <h2>相关主题</h2>
+            <div class="topic-cards">
+                <a href="overlay-networks.html" class="topic-card">
+                    <h3>Overlay网络概述</h3>
+                    <p>了解Kubernetes中Overlay网络的基本概念和常见实现</p>
+                </a>
+                <a href="geneve-technology.html" class="topic-card">
+                    <h3>Geneve技术详解</h3>
+                    <p>深入了解Geneve Overlay网络技术及其在Kubernetes中的应用</p>
+                </a>
+                <a href="network-bridges.html" class="topic-card">
+                    <h3>网络桥接</h3>
+                    <p>探索网络桥接在Kubernetes网络中的作用</p>
+                </a>
+                <a href="pod-network.html" class="topic-card">
+                    <h3>Pod网络</h3>
+                    <p>Kubernetes Pod网络的基础知识</p>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Kubernetes网络学习指南 | <a href="index.html">首页</a></p>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

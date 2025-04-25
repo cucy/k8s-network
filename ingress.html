@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Ingress | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html" class="active">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Ingress 网络原理</h2>
+            <p>Ingress 是 Kubernetes 中管理外部访问集群内服务的 API 对象，通常是 HTTP/HTTPS。Ingress 可以提供负载均衡、SSL 终止和基于名称的虚拟主机等功能。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/ingress-network.svg" class="diagram">
+                    Ingress 网络示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>为什么需要 Ingress？</h2>
+            <p>在 Kubernetes 中，Pod 和 Service 已经提供了集群内部的网络通信能力，但是对于从集群外部访问集群内服务，还需要更灵活的方案：</p>
+            <ul>
+                <li>NodePort 服务类型需要使用非标准端口（30000-32767），不够用户友好</li>
+                <li>LoadBalancer 服务类型需要为每个服务创建一个负载均衡器，成本高昂</li>
+                <li>需要基于 HTTP 路径和主机名进行路由的能力</li>
+                <li>需要集中管理 SSL/TLS 证书</li>
+                <li>需要实现复杂的流量控制，如重写、重定向等</li>
+            </ul>
+            <p>Ingress 正是为了解决这些问题而设计的，它提供了一个统一的入口点，可以根据不同的规则将流量路由到不同的后端服务。</p>
+        </section>
+
+        <section>
+            <h2>Ingress 工作原理</h2>
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Ingress 资源</div>
+                    <div class="tab">Ingress 控制器</div>
+                    <div class="tab">Ingress 规则</div>
+                    <div class="tab">TLS 配置</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>Ingress 资源</h3>
+                        <p>Ingress 资源是 Kubernetes API 中的一个对象，它定义了从集群外部到集群内 Service 的路由规则。Ingress 资源本身不会做任何事情，它需要 Ingress 控制器来实现其功能。</p>
+                        
+                        <div class="code-block">
+# 基本的 Ingress 资源示例
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /app1
+        pathType: Prefix
+        backend:
+          service:
+            name: app1-service
+            port:
+              number: 80
+      - path: /app2
+        pathType: Prefix
+        backend:
+          service:
+            name: app2-service
+            port:
+              number: 80
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Ingress 控制器</h3>
+                        <p>Ingress 控制器是实现 Ingress 功能的组件，它监听 Ingress 资源的变化，并根据 Ingress 规则配置负载均衡器。Kubernetes 本身不提供 Ingress 控制器，需要单独部署。</p>
+                        
+                        <p>常见的 Ingress 控制器包括：</p>
+                        <ul>
+                            <li><strong>Nginx Ingress Controller</strong>：基于 Nginx 的 Ingress 控制器，是最常用的实现</li>
+                            <li><strong>Traefik</strong>：一个现代化的 HTTP 反向代理和负载均衡器</li>
+                            <li><strong>HAProxy Ingress</strong>：基于 HAProxy 的 Ingress 控制器</li>
+                            <li><strong>Kong Ingress Controller</strong>：基于 Kong API 网关的 Ingress 控制器</li>
+                            <li><strong>Istio Ingress Gateway</strong>：Istio 服务网格的入口网关</li>
+                        </ul>
+                        
+                        <p>Ingress 控制器的工作流程：</p>
+                        <ol>
+                            <li>监听 Kubernetes API 服务器上 Ingress 资源的变化</li>
+                            <li>解析 Ingress 规则，生成相应的配置</li>
+                            <li>配置负载均衡器（如 Nginx）以实现流量路由</li>
+                            <li>处理 TLS 终止、路径重写等功能</li>
+                        </ol>
+                        
+                        <div class="code-block">
+# 部署 Nginx Ingress Controller
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.1.0/deploy/static/provider/cloud/deploy.yaml
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Ingress 规则</h3>
+                        <p>Ingress 规则定义了如何将 HTTP/HTTPS 流量路由到 Kubernetes 服务。规则基于主机名和 URL 路径。</p>
+                        
+                        <h4>基于主机名的路由</h4>
+                        <p>可以根据不同的主机名将流量路由到不同的服务：</p>
+                        <div class="code-block">
+spec:
+  rules:
+  - host: app1.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app1-service
+            port:
+              number: 80
+  - host: app2.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app2-service
+            port:
+              number: 80
+                        </div>
+                        
+                        <h4>基于路径的路由</h4>
+                        <p>可以根据 URL 路径将流量路由到不同的服务：</p>
+                        <div class="code-block">
+spec:
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /app1
+        pathType: Prefix
+        backend:
+          service:
+            name: app1-service
+            port:
+              number: 80
+      - path: /app2
+        pathType: Prefix
+        backend:
+          service:
+            name: app2-service
+            port:
+              number: 80
+                        </div>
+                        
+                        <h4>路径类型</h4>
+                        <p>Kubernetes 支持三种路径类型：</p>
+                        <ul>
+                            <li><strong>Exact</strong>：精确匹配 URL 路径</li>
+                            <li><strong>Prefix</strong>：基于 URL 路径前缀匹配</li>
+                            <li><strong>ImplementationSpecific</strong>：由 Ingress 控制器决定匹配方式</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>TLS 配置</h3>
+                        <p>Ingress 可以配置 TLS，为入站连接提供安全通信。TLS 配置需要一个包含证书和私钥的 Secret。</p>
+                        
+                        <div class="code-block">
+# 创建 TLS Secret
+kubectl create secret tls example-tls --cert=path/to/cert.crt --key=path/to/key.key
+
+# 在 Ingress 中使用 TLS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tls-example-ingress
+spec:
+  tls:
+  - hosts:
+      - example.com
+    secretName: example-tls
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: example-service
+            port:
+              number: 80
+                        </div>
+                        
+                        <p>当配置了 TLS 后，Ingress 控制器会：</p>
+                        <ol>
+                            <li>加载 Secret 中的证书和私钥</li>
+                            <li>配置负载均衡器以终止 TLS 连接</li>
+                            <li>将解密后的 HTTP 请求转发到后端服务</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Ingress 实现细节</h2>
+            
+            <div class="interactive">
+                <h3>Nginx Ingress Controller 架构</h3>
+                <p>以最常用的 Nginx Ingress Controller 为例，它的架构包括：</p>
+                <ul>
+                    <li><strong>Nginx</strong>：作为反向代理和负载均衡器</li>
+                    <li><strong>Controller</strong>：监听 Ingress 资源并生成 Nginx 配置</li>
+                    <li><strong>ConfigMap</strong>：存储 Nginx 配置模板</li>
+                    <li><strong>Service</strong>：暴露 Nginx Ingress Controller</li>
+                </ul>
+                
+                <h4>工作流程：</h4>
+                <ol>
+                    <li>用户创建或修改 Ingress 资源</li>
+                    <li>Controller 监听到变化，解析 Ingress 规则</li>
+                    <li>Controller 生成新的 Nginx 配置</li>
+                    <li>Nginx 重新加载配置，开始按新规则路由流量</li>
+                </ol>
+                
+                <h3>Ingress 与 Service 的关系</h3>
+                <p>Ingress 不直接与 Pod 通信，而是通过 Service 与 Pod 通信：</p>
+                <ol>
+                    <li>外部流量首先到达 Ingress 控制器</li>
+                    <li>Ingress 控制器根据规则将流量路由到相应的 Service</li>
+                    <li>Service 再将流量路由到后端 Pod</li>
+                </ol>
+                <p>这种设计使得 Ingress 可以利用 Service 提供的负载均衡和服务发现功能。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Ingress 注解</h2>
+            <p>Ingress 资源支持通过注解（Annotations）来配置特定于 Ingress 控制器的功能。不同的 Ingress 控制器支持不同的注解。</p>
+            
+            <div class="experiment-card">
+                <h3>常用 Nginx Ingress 注解</h3>
+                <div class="code-block">
+# 路径重写
+nginx.ingress.kubernetes.io/rewrite-target: /
+
+# 启用 CORS
+nginx.ingress.kubernetes.io/enable-cors: "true"
+
+# 配置会话亲和性
+nginx.ingress.kubernetes.io/affinity: "cookie"
+nginx.ingress.kubernetes.io/session-cookie-name: "route"
+nginx.ingress.kubernetes.io/session-cookie-expires: "172800"
+nginx.ingress.kubernetes.io/session-cookie-max-age: "172800"
+
+# 配置超时
+nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+# 配置 SSL 重定向
+nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# 限制请求大小
+nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+# 配置白名单
+nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/24,172.10.0.1"
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Ingress 高级功能</h2>
+            <p>除了基本的路由功能外，Ingress 还可以实现许多高级功能：</p>
+            
+            <h3>1. 金丝雀发布</h3>
+            <p>使用注解可以实现流量分割，将一部分流量路由到新版本的应用：</p>
+            <div class="code-block">
+nginx.ingress.kubernetes.io/canary: "true"
+nginx.ingress.kubernetes.io/canary-weight: "30"
+            </div>
+            
+            <h3>2. 速率限制</h3>
+            <p>限制客户端的请求速率，防止过载：</p>
+            <div class="code-block">
+nginx.ingress.kubernetes.io/limit-rps: "10"
+nginx.ingress.kubernetes.io/limit-connections: "5"
+            </div>
+            
+            <h3>3. 认证</h3>
+            <p>为路由添加基本认证：</p>
+            <div class="code-block">
+# 创建认证密钥
+htpasswd -c auth username
+kubectl create secret generic basic-auth --from-file=auth
+
+# 在 Ingress 中启用认证
+nginx.ingress.kubernetes.io/auth-type: basic
+nginx.ingress.kubernetes.io/auth-secret: basic-auth
+nginx.ingress.kubernetes.io/auth-realm: "Authentication Required"
+            </div>
+            
+            <h3>4. 自定义错误页面</h3>
+            <p>配置自定义错误页面：</p>
+            <div class="code-block">
+nginx.ingress.kubernetes.io/custom-http-errors: "404,500,502"
+nginx.ingress.kubernetes.io/default-backend: error-pages-service
+            </div>
+        </section>
+
+        <section>
+            <h2>Ingress 排障</h2>
+            <p>在排查 Ingress 问题时，可以使用以下命令和工具：</p>
+            
+            <div class="experiment-card">
+                <h3>常用 Ingress 排障命令</h3>
+                <div class="code-block">
+# 查看 Ingress 资源
+kubectl get ingress
+kubectl describe ingress example-ingress
+
+# 查看 Ingress 控制器日志
+kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
+
+# 检查 Ingress 控制器 Pod 状态
+kubectl get pods -n ingress-nginx
+
+# 检查 Ingress 控制器 Service
+kubectl get svc -n ingress-nginx
+
+# 测试 Ingress 路由
+curl -H "Host: example.com" http://<ingress-ip>/path
+
+# 检查 TLS 证书
+openssl s_client -connect example.com:443 -servername example.com
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <p>Ingress 是 Kubernetes 网络模型中的重要组成部分，它提供了从集群外部访问集群内服务的灵活方式。理解 Ingress 的工作原理对于构建可靠的 Kubernetes 应用至关重要。</p>
+            <a href="cni.html" class="button">了解 CNI 插件</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

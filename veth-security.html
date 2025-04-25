@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络隔离与安全 - Veth 网络指南</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>网络隔离与安全</h1>
+        <nav>
+            <ul>
+                <li><a href="index.html">首页</a></li>
+                <li><a href="veth-basics.html">Veth 基础</a></li>
+                <li><a href="veth-topologies.html">网络拓扑</a></li>
+                <li><a href="veth-routing.html">路由配置</a></li>
+                <li><a href="veth-security.html">网络安全</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="container">
+        <aside>
+            <h2>Veth 对系列文章</h2>
+            <ul>
+                <li><a href="veth-basics.html">Veth 基础知识</a></li>
+                <li><a href="veth-bridge-topology.html">Bridge 网络拓扑</a></li>
+                <li><a href="veth-ring-topology.html">Ring 网络拓扑</a></li>
+                <li><a href="veth-hybrid-topology.html">混合网络拓扑</a></li>
+                <li><a href="veth-routing-advanced.html">高级路由配置概述</a></li>
+                <li><a href="veth-routing-static.html">静态路由配置</a></li>
+                <li><a href="veth-routing-static-basic.html">基本静态路由</a></li>
+                <li><a href="veth-routing-static-advanced.html">高级静态路由</a></li>
+                <li><a href="veth-routing-static-multipath.html">多路径静态路由</a></li>
+                <li><a href="veth-routing-dynamic.html">动态路由配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf.html">OSPF 路由配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf-basic.html">OSPF 基础配置</a></li>
+                <li><a href="veth-routing-dynamic-ospf-advanced.html">OSPF 高级配置</a></li>
+                <li><a href="veth-routing-dynamic-rip.html">RIP 路由配置</a></li>
+                <li><a href="veth-routing-dynamic-bgp.html">BGP 路由配置</a></li>
+                <li><a href="veth-routing-policy.html">策略路由配置</a></li>
+                <li><a href="veth-security.html">网络隔离与安全</a></li>
+            </ul>
+        </aside>
+
+        <main>
+            <section id="introduction">
+                <h2>网络隔离与安全介绍</h2>
+                <p>在现代网络环境中，网络隔离和安全是至关重要的。通过 veth 对和网络命名空间，我们可以创建隔离的网络环境，并实施各种安全措施来保护网络。本文将介绍如何使用 Linux 网络工具实现网络隔离和安全。</p>
+                <p>网络隔离和安全的主要目标包括：</p>
+                <ul>
+                    <li>隔离不同的网络环境，防止未授权的访问</li>
+                    <li>控制网络流量，只允许必要的通信</li>
+                    <li>监控网络活动，检测异常行为</li>
+                    <li>加密敏感数据，保护数据传输安全</li>
+                    <li>实施访问控制，限制资源访问</li>
+                </ul>
+                <p>在本文中，我们将探讨如何使用 Linux 网络命名空间、veth 对、iptables、nftables 和其他工具来实现这些目标。</p>
+                <p>由于网络安全是一个广泛的主题，我们将内容分成多个页面，每个页面深入探讨特定的安全方面：</p>
+                <ul>
+                    <li><a href="veth-security-isolation.html">网络隔离详解</a> - 深入探讨使用网络命名空间和 veth 对实现网络隔离</li>
+                    <li><a href="veth-security-iptables.html">使用 iptables 加强网络安全</a> - 详细介绍 iptables 防火墙配置</li>
+                    <li><a href="veth-security-nftables.html">使用 nftables 加强网络安全</a> - 详细介绍 nftables 防火墙配置</li>
+                    <li><a href="veth-security-monitoring.html">网络监控与分析</a> - 介绍网络流量监控和分析工具</li>
+                    <li><a href="veth-security-encryption.html">安全通信与加密</a> - 探讨 IPsec、WireGuard 等加密技术</li>
+                    <li><a href="veth-security-segmentation.html">网络分段与微分段</a> - 介绍网络分段技术和实现方法</li>
+                    <li><a href="veth-security-zerotrust.html">零信任安全模型</a> - 探讨零信任安全原则和实现</li>
+                </ul>
+            </section>
+
+            <section id="network-isolation-overview">
+                <h2>网络隔离概述</h2>
+                <p>网络隔离是网络安全的基础。通过将网络分割成多个隔离的区域，可以限制安全事件的影响范围，并提供更精细的访问控制。</p>
+                <p>Linux 网络命名空间是实现网络隔离的强大工具。每个网络命名空间都有自己的网络设备、路由表、防火墙规则等，彼此之间默认是隔离的。</p>
+                <p>使用 veth 对可以控制不同网络命名空间之间的通信，从而实现精细的网络隔离和控制。</p>
+                <p>有关网络隔离的详细内容，请参阅 <a href="veth-security-isolation.html">网络隔离详解</a> 页面。</p>
+            </section>
+
+            <section id="firewall-overview">
+                <h2>防火墙概述</h2>
+                <p>防火墙是网络安全的核心组件，用于过滤和控制网络流量。Linux 提供了两种主要的防火墙工具：iptables 和 nftables。</p>
+                <p>iptables 是传统的 Linux 防火墙工具，提供了强大的数据包过滤、网络地址转换（NAT）和数据包修改功能。</p>
+                <p>nftables 是 iptables 的继任者，提供了更灵活、更强大的防火墙功能，包括集合、映射和字典等高级特性。</p>
+                <p>有关防火墙配置的详细内容，请参阅：</p>
+                <ul>
+                    <li><a href="veth-security-iptables.html">使用 iptables 加强网络安全</a></li>
+                    <li><a href="veth-security-nftables.html">使用 nftables 加强网络安全</a></li>
+                </ul>
+            </section>
+
+            <section id="network-monitoring-overview">
+                <h2>网络监控概述</h2>
+                <p>网络监控是网络安全的重要组成部分，可以帮助检测异常活动和潜在威胁。Linux 提供了多种网络监控工具，如 tcpdump、iptables 日志和 conntrack 等。</p>
+                <p>通过这些工具，可以捕获和分析网络流量，监控网络连接，检测异常行为，为网络安全提供重要支持。</p>
+                <p>有关网络监控的详细内容，请参阅 <a href="veth-security-monitoring.html">网络监控与分析</a> 页面。</p>
+            </section>
+
+            <section id="secure-communication-overview">
+                <h2>安全通信概述</h2>
+                <p>加密是保护网络通信安全的重要手段。Linux 支持多种加密技术，如 IPsec 和 WireGuard 等。</p>
+                <p>IPsec 可以在 IP 层加密网络流量，提供端到端的安全通信。WireGuard 是一个简单、高效的 VPN 解决方案，可以创建安全的网络隧道。</p>
+                <p>有关安全通信的详细内容，请参阅 <a href="veth-security-encryption.html">安全通信与加密</a> 页面。</p>
+            </section>
+
+            <section id="network-segmentation-overview">
+                <h2>网络分段概述</h2>
+                <p>网络分段是将网络划分为多个隔离的区域，以限制安全事件的影响范围。Linux 支持多种网络分段技术，如 VLAN、网桥和微分段等。</p>
+                <p>通过网络分段，可以实现更精细的访问控制，提高网络安全性。微分段是零信任安全的重要组成部分，将网络划分为更小的安全区域。</p>
+                <p>有关网络分段的详细内容，请参阅 <a href="veth-security-segmentation.html">网络分段与微分段</a> 页面。</p>
+            </section>
+
+            <section id="zero-trust-overview">
+                <h2>零信任安全概述</h2>
+                <p>零信任安全模型假设网络中的任何设备或用户都不可信，需要对每个访问请求进行验证和授权。</p>
+                <p>零信任安全的核心原则包括最小权限原则、持续验证和授权、微分段等。通过实施这些原则，可以构建更安全的网络环境。</p>
+                <p>有关零信任安全的详细内容，请参阅 <a href="veth-security-zerotrust.html">零信任安全模型</a> 页面。</p>
+            </section>
+
+            <section id="conclusion">
+                <h2>总结</h2>
+                <p>网络隔离和安全是保护现代网络环境的关键。通过使用 Linux 网络命名空间、veth 对、iptables/nftables 和其他工具，我们可以实现强大的网络隔离和安全控制。</p>
+                <p>本系列文章介绍了多种网络安全技术，包括：</p>
+                <ul>
+                    <li>使用网络命名空间和 veth 对实现网络隔离</li>
+                    <li>使用 iptables 和 nftables 加强网络安全</li>
+                    <li>网络监控和流量分析</li>
+                    <li>安全通信和加密</li>
+                    <li>网络分段和微分段</li>
+                    <li>零信任安全模型</li>
+                </ul>
+                <p>通过综合应用这些技术，我们可以构建更安全、更可靠的网络环境，有效防范各种网络威胁。</p>
+                <p>在实际应用中，应根据具体需求和安全要求，选择合适的安全措施，并定期更新和维护安全配置，以应对不断变化的安全威胁。</p>
+            </section>
+
+            <div class="navigation-buttons">
+                <a href="veth-routing-policy.html" class="prev-button">上一页：策略路由配置</a>
+                <a href="index.html" class="next-button">返回首页</a>
+            </div>
+        </main>
+    </div>
+
+    <footer>
+        <p>&copy; 2023 Veth 网络指南. 保留所有权利.</p>
+    </footer>
+</body>
+</html>

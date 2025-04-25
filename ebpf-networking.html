@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eBPF网络 | Kubernetes 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+    <style>
+        /* 修复导航栏样式 */
+        nav ul {
+            overflow: auto;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="overlay-networks.html">Overlay 网络</a></li>
+                    <li><a href="geneve-technology.html">Geneve 技术</a></li>
+                    <li><a href="wireguard-overlay.html">WireGuard</a></li>
+                    <li><a href="ebpf-networking.html" class="active">eBPF 网络</a></li>
+                    <li><a href="network-troubleshooting.html">网络故障排查</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section>
+            <h2>eBPF网络技术简介</h2>
+            <p>eBPF（extended Berkeley Packet Filter）是Linux内核中的一项革命性技术，它允许在内核中安全地运行沙盒程序，而无需更改内核源代码或加载内核模块。在Kubernetes网络中，eBPF正在彻底改变网络实现方式，提供更高的性能、更强的可观测性和更丰富的功能。</p>
+            
+            <div class="info-box">
+                <h3>eBPF的核心优势</h3>
+                <ul>
+                    <li><strong>高性能</strong>：直接在内核中处理网络数据包，避免了用户空间与内核空间的切换开销</li>
+                    <li><strong>可编程性</strong>：允许开发者自定义网络行为，实现复杂的网络功能</li>
+                    <li><strong>可观测性</strong>：提供前所未有的网络可视化和监控能力</li>
+                    <li><strong>安全性</strong>：内核验证器确保eBPF程序安全运行，不会崩溃或损害系统</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>eBPF在Kubernetes网络中的应用</h2>
+            <p>eBPF技术正在改变Kubernetes网络的实现方式，以下是主要应用领域：</p>
+            
+            <div class="feature-grid">
+                <div class="feature">
+                    <h4>高性能网络数据路径</h4>
+                    <p>eBPF可以实现高效的网络数据路径，直接在内核中处理和转发数据包，避免传统网络堆栈的开销。这使得基于eBPF的CNI插件（如Cilium）能够提供接近裸机的网络性能。</p>
+                </div>
+                
+                <div class="feature">
+                    <h4>网络策略增强</h4>
+                    <p>eBPF允许在L3-L7层实现细粒度的网络策略，支持基于身份的访问控制、URL过滤、DNS策略等高级功能，远超传统的IP/端口级别控制。</p>
+                </div>
+                
+                <div class="feature">
+                    <h4>负载均衡</h4>
+                    <p>eBPF可以实现高性能的内核态负载均衡，替代kube-proxy的iptables实现，提供更高的吞吐量和更低的延迟，特别是在大规模集群中效果显著。</p>
+                </div>
+                
+                <div class="feature">
+                    <h4>网络可观测性</h4>
+                    <p>eBPF能够捕获和分析网络流量，提供详细的网络可视化和监控，帮助运维人员快速定位和解决网络问题。</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Cilium：基于eBPF的CNI插件</h2>
+            <p>Cilium是最流行的基于eBPF的Kubernetes CNI插件，它充分利用eBPF技术提供高性能、安全且可观测的网络解决方案。</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Cilium架构</div>
+                    <div class="tab">网络模式</div>
+                    <div class="tab">性能优势</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>Cilium架构</h3>
+                        <p>Cilium的架构由以下主要组件组成：</p>
+                        <ul>
+                            <li><strong>Cilium Agent</strong>：运行在每个节点上，负责配置eBPF程序和管理本地网络</li>
+                            <li><strong>Cilium Operator</strong>：集群级别组件，负责全局资源管理和协调</li>
+                            <li><strong>eBPF程序</strong>：加载到内核中，处理数据包转发、负载均衡、网络策略等</li>
+                            <li><strong>Hubble</strong>：Cilium的可观测性组件，提供网络流量可视化</li>
+                        </ul>
+                        <p>Cilium使用身份（Identity）概念代替传统的IP地址，每个工作负载（如Pod）都被分配一个身份，网络策略基于这些身份而非IP地址实施，提供更稳定和安全的网络控制。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Cilium网络模式</h3>
+                        <p>Cilium支持多种网络模式，适应不同的环境需求：</p>
+                        <h4>1. 直接路由模式</h4>
+                        <p>在直接路由模式下，Cilium利用eBPF直接在主机之间路由流量，无需额外的封装开销。这种模式适用于支持跨节点直接路由的环境。</p>
+                        <div class="code-block">
+# Cilium直接路由模式配置示例
+helm install cilium cilium/cilium --version 1.14.0 \
+  --namespace kube-system \
+  --set tunnel=disabled \
+  --set autoDirectNodeRoutes=true
+                        </div>
+                        
+                        <h4>2. 隧道模式</h4>
+                        <p>在隧道模式下，Cilium使用VXLAN或Geneve封装流量，适用于不支持直接路由的环境。与传统的Overlay实现不同，Cilium的封装是在eBPF中高效实现的。</p>
+                        <div class="code-block">
+# Cilium VXLAN模式配置示例
+helm install cilium cilium/cilium --version 1.14.0 \
+  --namespace kube-system \
+  --set tunnel=vxlan
+                        </div>
+                        
+                        <h4>3. 混合模式</h4>
+                        <p>Cilium还支持混合模式，可以在同一集群中同时使用直接路由和隧道模式，根据网络拓扑自动选择最优路径。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>Cilium性能优势</h3>
+                        <p>与传统CNI插件相比，Cilium具有显著的性能优势：</p>
+                        <h4>1. 数据路径优化</h4>
+                        <p>Cilium的eBPF数据路径避免了传统网络堆栈的多次上下文切换，减少了CPU使用和延迟。在高吞吐量场景下，性能提升可达30-50%。</p>
+                        
+                        <h4>2. 替代kube-proxy</h4>
+                        <p>Cilium可以完全替代kube-proxy，使用eBPF实现服务负载均衡，避免了iptables的性能瓶颈。在大规模集群中，这可以将服务延迟降低90%以上。</p>
+                        <div class="code-block">
+# 启用Cilium的kube-proxy替代功能
+helm install cilium cilium/cilium --version 1.14.0 \
+  --namespace kube-system \
+  --set kubeProxyReplacement=strict
+                        </div>
+                        
+                        <h4>3. 连接跟踪优化</h4>
+                        <p>Cilium优化了连接跟踪（conntrack）机制，减少了高连接场景下的资源消耗，特别适合微服务架构。</p>
+                        
+                        <h4>4. 硬件卸载支持</h4>
+                        <p>Cilium支持将部分eBPF功能卸载到支持XDP（eXpress Data Path）的网卡上，进一步提高性能。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>eBPF网络可观测性</h2>
+            <p>eBPF技术为Kubernetes网络提供了前所未有的可观测性，帮助开发者和运维人员深入了解网络行为。</p>
+            
+            <div class="experiment-card">
+                <h3>Hubble：Cilium的可观测性工具</h3>
+                <p>Hubble是Cilium的网络可观测性工具，它利用eBPF提供深入的网络流量可视化和监控。</p>
+                <div class="code-block">
+# 安装Hubble
+helm upgrade cilium cilium/cilium --version 1.14.0 \
+  --namespace kube-system \
+  --reuse-values \
+  --set hubble.relay.enabled=true \
+  --set hubble.ui.enabled=true
+
+# 安装Hubble CLI
+curl -L --remote-name-all https://github.com/cilium/hubble/releases/latest/download/hubble-linux-amd64.tar.gz
+tar xzvf hubble-linux-amd64.tar.gz
+sudo mv hubble /usr/local/bin
+
+# 查看服务间流量
+hubble observe --namespace default
+                </div>
+                <p>Hubble提供了多种可视化方式，包括：</p>
+                <ul>
+                    <li>服务依赖关系图</li>
+                    <li>L3/L4流量监控</li>
+                    <li>L7协议（HTTP、gRPC、Kafka等）可视化</li>
+                    <li>网络策略测试和验证</li>
+                    <li>性能瓶颈分析</li>
+                </ul>
+            </div>
+            
+            <div class="tips-container">
+                <div class="tip">
+                    <h3>网络故障排查</h3>
+                    <p>eBPF工具极大地简化了Kubernetes网络故障排查：</p>
+                    <div class="code-block">
+# 查看Pod间通信延迟
+kubectl exec -it netperf-client -- bpftrace -e 'kprobe:tcp_sendmsg { @start[arg0] = nsecs; } kretprobe:tcp_sendmsg /@start[retval]/ { @ns = hist(nsecs - @start[retval]); delete(@start[retval]); }'
+
+# 分析数据包丢失
+kubectl exec -it debug-pod -- bpftool prog trace pipe | grep DROP
+
+# 监控DNS解析性能
+kubectl exec -it debug-pod -- ebpf-tools dns-latency
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <h3>性能分析</h3>
+                    <p>使用eBPF工具分析网络性能：</p>
+                    <div class="code-block">
+# 分析TCP重传
+kubectl exec -it debug-pod -- tcpretrans
+
+# 查看网络吞吐量
+kubectl exec -it debug-pod -- biolatency -D 10
+
+# 分析网络延迟分布
+kubectl exec -it debug-pod -- tcplife
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>eBPF网络安全</h2>
+            <p>eBPF技术为Kubernetes提供了强大的网络安全能力，实现了传统防火墙难以达到的精细控制。</p>
+            
+            <div class="feature-grid">
+                <div class="feature">
+                    <h4>身份感知策略</h4>
+                    <p>基于eBPF的网络策略使用工作负载身份而非IP地址，提供更稳定和安全的访问控制，即使Pod IP变化也能保持策略一致性。</p>
+                </div>
+                
+                <div class="feature">
+                    <h4>L7策略</h4>
+                    <p>eBPF可以检查和过滤应用层协议（HTTP、gRPC、Kafka等），实现基于URL路径、方法、标头等的精细控制。</p>
+                </div>
+                
+                <div class="feature">
+                    <h4>透明加密</h4>
+                    <p>Cilium支持透明的WireGuard加密，保护节点间通信安全，无需应用感知。</p>
+                </div>
+                
+                <div class="feature">
+                    <h4>威胁检测</h4>
+                    <p>eBPF可以实时监控网络行为，检测异常模式和潜在攻击，如DDoS、端口扫描等。</p>
+                </div>
+            </div>
+            
+            <div class="code-block">
+# Cilium L7 HTTP策略示例
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: http-rule
+spec:
+  endpointSelector:
+    matchLabels:
+      app: web-service
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: frontend
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+      rules:
+        http:
+        - method: "GET"
+          path: "/api/v1/products"
+        - method: "POST"
+          path: "/api/v1/products"
+          headers:
+          - "X-Auth-Token: ^[a-zA-Z0-9]{32}$"
+            </div>
+        </section>
+
+        <section>
+            <h2>eBPF网络实践</h2>
+            <p>以下是一些在Kubernetes中应用eBPF网络技术的实践案例和实验。</p>
+            
+            <div class="experiment-card">
+                <h3>实验1：部署Cilium并验证eBPF功能</h3>
+                <div class="code-block">
+# 1. 安装Cilium CLI
+curl -L --remote-name-all https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-amd64.tar.gz
+tar xzvf cilium-linux-amd64.tar.gz
+sudo mv cilium /usr/local/bin
+
+# 2. 使用Cilium CLI部署Cilium
+cilium install --version 1.14.0
+
+# 3. 验证安装
+cilium status
+
+# 4. 运行连通性测试
+cilium connectivity test
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验2：eBPF负载均衡与kube-proxy对比</h3>
+                <p>本实验对比Cilium eBPF负载均衡与传统kube-proxy的性能差异。</p>
+                <div class="code-block">
+# 1. 部署测试应用
+kubectl apply -f https://raw.githubusercontent.com/cilium/cilium/v1.14/examples/kubernetes/servicemesh/benchmark/client.yaml
+kubectl apply -f https://raw.githubusercontent.com/cilium/cilium/v1.14/examples/kubernetes/servicemesh/benchmark/server.yaml
+
+# 2. 使用kube-proxy模式测试性能
+cilium config set kubeProxyReplacement=disabled
+kubectl exec -it client -- wrk -t2 -c100 -d30s http://server:8080/
+
+# 3. 使用eBPF模式测试性能
+cilium config set kubeProxyReplacement=strict
+kubectl exec -it client -- wrk -t2 -c100 -d30s http://server:8080/
+
+# 4. 比较结果
+# eBPF模式通常会显示更高的请求处理能力和更低的延迟
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验3：eBPF网络可观测性</h3>
+                <p>本实验展示如何使用Hubble观察和分析Kubernetes网络流量。</p>
+                <div class="code-block">
+# 1. 启用Hubble
+cilium hubble enable --ui
+
+# 2. 端口转发Hubble UI
+kubectl port-forward -n kube-system svc/hubble-ui 12000:80
+
+# 3. 生成一些测试流量
+kubectl exec -it client -- curl http://server:8080/
+
+# 4. 使用Hubble CLI观察流量
+hubble observe --last 10
+
+# 5. 按服务过滤流量
+hubble observe --to-service server
+
+# 6. 查看HTTP请求
+hubble observe --protocol http
+
+# 7. 导出流量图
+hubble observe --output json > traffic.json
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>eBPF网络的未来发展</h2>
+            <p>eBPF网络技术正在快速发展，以下是一些值得关注的未来趋势：</p>
+            
+            <div class="trends-container">
+                <div class="trend">
+                    <h3>服务网格集成</h3>
+                    <p>eBPF正在与服务网格技术融合，如Cilium Service Mesh，它使用eBPF实现服务网格功能，无需Sidecar代理，大幅降低资源消耗和复杂性。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>多集群网络</h3>
+                    <p>eBPF将简化多集群和混合云网络，提供统一的网络平面和一致的策略模型，如Cilium Cluster Mesh。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>网络AI/ML</h3>
+                    <p>结合eBPF的可观测性和机器学习，将实现自动化的网络异常检测、性能优化和安全威胁识别。</p>
+                </div>
+                
+                <div class="trend">
+                    <h3>硬件加速</h3>
+                    <p>随着智能网卡和DPU的发展，更多eBPF功能将被卸载到硬件，进一步提高性能。</p>
+                </div>
+            </div>
+            
+            <div class="resources">
+                <h3>eBPF网络学习资源</h3>
+                <div class="resource">
+                    <h4>官方文档</h4>
+                    <ul>
+                        <li><a href="https://cilium.io/docs/" target="_blank">Cilium文档</a></li>
+                        <li><a href="https://ebpf.io/what-is-ebpf" target="_blank">eBPF官方网站</a></li>
+                        <li><a href="https://github.com/cilium/cilium" target="_blank">Cilium GitHub</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resource">
+                    <h4>书籍和教程</h4>
+                    <ul>
+                        <li><a href="https://isovalent.com/blog/post/why-ebpf-matters" target="_blank">为什么eBPF很重要</a></li>
+                        <li><a href="https://github.com/lizrice/learning-ebpf" target="_blank">Learning eBPF</a></li>
+                        <li><a href="https://cilium.io/blog/categories/tutorials" target="_blank">Cilium教程</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resource">
+                    <h4>工具和项目</h4>
+                    <ul>
+                        <li><a href="https://github.com/cilium/hubble" target="_blank">Hubble</a></li>
+                        <li><a href="https://github.com/iovisor/bcc" target="_blank">BCC (BPF Compiler Collection)</a></li>
+                        <li><a href="https://github.com/iovisor/bpftrace" target="_blank">bpftrace</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 标签切换功能
+            const tabContainers = document.querySelectorAll('.tab-container');
+            
+            tabContainers.forEach(container => {
+                const tabs = container.querySelectorAll('.tab');
+                const panes = container.querySelectorAll('.tab-pane');
+                
+                tabs.forEach((tab, index) => {
+                    tab.addEventListener('click', () => {
+                        // 移除所有活动状态
+                        tabs.forEach(t => t.classList.remove('active'));
+                        panes.forEach(p => p.classList.remove('active'));
+                        
+                        // 设置当前标签为活动状态
+                        tab.classList.add('active');
+                        panes[index].classList.add('active');
+                    });
+                });
+            });
+            
+            // 手风琴功能
+            const accordionHeaders = document.querySelectorAll('.accordion-header');
+            
+            accordionHeaders.forEach(header => {
+                header.addEventListener('click', () => {
+                    const content = header.nextElementSibling;
+                    const isOpen = header.classList.contains('active');
+                    
+                    // 关闭所有其他手风琴项
+                    document.querySelectorAll('.accordion-header.active').forEach(h => {
+                        if (h !== header) {
+                            h.classList.remove('active');
+                            h.nextElementSibling.style.maxHeight = null;
+                        }
+                    });
+                    
+                    // 切换当前项
+                    if (!isOpen) {
+                        header.classList.add('active');
+                        content.style.maxHeight = content.scrollHeight + 'px';
+                    } else {
+                        header.classList.remove('active');
+                        content.style.maxHeight = null;
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

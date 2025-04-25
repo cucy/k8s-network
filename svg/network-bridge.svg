@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="500" xmlns="http://www.w3.org/2000/svg">
+    <!-- 背景 -->
+    <rect width="800" height="500" fill="#f8f9fa" />
+    
+    <!-- 标题 -->
+    <text x="400" y="30" font-family="Arial, sans-serif" font-size="24" text-anchor="middle" fill="#333">Kubernetes 网桥工作原理</text>
+    
+    <!-- 主机节点边框 -->
+    <rect x="50" y="60" width="700" height="400" rx="10" ry="10" fill="#e9ecef" stroke="#adb5bd" stroke-width="2" />
+    <text x="400" y="80" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#495057">Kubernetes 节点</text>
+    
+    <!-- 网桥 -->
+    <rect x="150" y="220" width="500" height="60" rx="5" ry="5" fill="#4dabf7" stroke="#339af0" stroke-width="2" />
+    <text x="400" y="255" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">网桥 (cni0/docker0)</text>
+    
+    <!-- Pod 1 -->
+    <rect x="100" y="100" width="180" height="100" rx="10" ry="10" fill="#d0bfff" stroke="#9775fa" stroke-width="2" />
+    <text x="190" y="125" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#495057">Pod 1</text>
+    <rect x="120" y="140" width="140" height="40" rx="5" ry="5" fill="#f1f3f5" stroke="#adb5bd" stroke-width="1" />
+    <text x="190" y="165" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">eth0: 10.244.1.2</text>
+    
+    <!-- Pod 2 -->
+    <rect x="310" y="100" width="180" height="100" rx="10" ry="10" fill="#d0bfff" stroke="#9775fa" stroke-width="2" />
+    <text x="400" y="125" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#495057">Pod 2</text>
+    <rect x="330" y="140" width="140" height="40" rx="5" ry="5" fill="#f1f3f5" stroke="#adb5bd" stroke-width="1" />
+    <text x="400" y="165" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">eth0: 10.244.1.3</text>
+    
+    <!-- Pod 3 -->
+    <rect x="520" y="100" width="180" height="100" rx="10" ry="10" fill="#d0bfff" stroke="#9775fa" stroke-width="2" />
+    <text x="610" y="125" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#495057">Pod 3</text>
+    <rect x="540" y="140" width="140" height="40" rx="5" ry="5" fill="#f1f3f5" stroke="#adb5bd" stroke-width="1" />
+    <text x="610" y="165" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#495057">eth0: 10.244.1.4</text>
+    
+    <!-- veth pairs -->
+    <!-- Pod 1 veth -->
+    <line x1="190" y1="200" x2="190" y2="220" stroke="#74c0fc" stroke-width="3" />
+    <circle cx="190" cy="210" r="5" fill="#228be6" />
+    <text x="210" y="210" font-family="Arial, sans-serif" font-size="12" fill="#495057">veth1</text>
+    
+    <!-- Pod 2 veth -->
+    <line x1="400" y1="200" x2="400" y2="220" stroke="#74c0fc" stroke-width="3" />
+    <circle cx="400" cy="210" r="5" fill="#228be6" />
+    <text x="420" y="210" font-family="Arial, sans-serif" font-size="12" fill="#495057">veth2</text>
+    
+    <!-- Pod 3 veth -->
+    <line x1="610" y1="200" x2="610" y2="220" stroke="#74c0fc" stroke-width="3" />
+    <circle cx="610" cy="210" r="5" fill="#228be6" />
+    <text x="630" y="210" font-family="Arial, sans-serif" font-size="12" fill="#495057">veth3</text>
+    
+    <!-- 主机网络接口 -->
+    <rect x="300" y="350" width="200" height="50" rx="5" ry="5" fill="#51cf66" stroke="#40c057" stroke-width="2" />
+    <text x="400" y="380" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="white">主机网络接口 (eth0)</text>
+    
+    <!-- 连接网桥到主机网络 -->
+    <line x1="400" y1="280" x2="400" y2="350" stroke="#74c0fc" stroke-width="3" stroke-dasharray="5,5" />
+    <text x="420" y="320" font-family="Arial, sans-serif" font-size="12" fill="#495057">路由/NAT</text>
+    
+    <!-- 数据流向说明 -->
+    <text x="100" y="450" font-family="Arial, sans-serif" font-size="14" fill="#495057">Pod间通信: 数据包通过veth pair到达网桥，网桥根据MAC地址表转发到目标Pod</text>
+    
+    <!-- 图例 -->
+    <rect x="600" y="430" width="20" height="10" fill="#d0bfff" stroke="#9775fa" stroke-width="1" />
+    <text x="625" y="440" font-family="Arial, sans-serif" font-size="12" fill="#495057">Pod</text>
+    
+    <rect x="600" y="450" width="20" height="10" fill="#4dabf7" stroke="#339af0" stroke-width="1" />
+    <text x="625" y="460" font-family="Arial, sans-serif" font-size="12" fill="#495057">网桥</text>
+    
+    <line x1="600" y1="470" x2="620" y2="470" stroke="#74c0fc" stroke-width="3" />
+    <text x="625" y="475" font-family="Arial, sans-serif" font-size="12" fill="#495057">veth pair</text>
+</svg>

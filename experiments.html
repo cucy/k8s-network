@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes 网络动手实验 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html" class="active">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Kubernetes 网络动手实验</h2>
+            <p>通过实际操作来深入理解 Kubernetes 网络原理。以下实验将帮助你探索 Pod 网络、Service 网络、Ingress 和 CNI 插件的工作原理。</p>
+            
+            <div class="experiment-card">
+                <h3>实验环境准备</h3>
+                <p>在开始实验之前，你需要准备一个 Kubernetes 集群。可以使用以下工具之一：</p>
+                <ul>
+                    <li><strong>Minikube</strong>：单节点 Kubernetes 集群，适合本地开发和测试</li>
+                    <li><strong>Kind</strong>：在 Docker 容器中运行的 Kubernetes 集群</li>
+                    <li><strong>K3s</strong>：轻量级 Kubernetes 发行版，适合边缘计算和 IoT</li>
+                    <li><strong>云服务商提供的 Kubernetes 服务</strong>：如 GKE、AKS、EKS 等</li>
+                </ul>
+                
+                <div class="code-block">
+# 安装 Minikube
+# Windows
+choco install minikube
+
+# macOS
+brew install minikube
+
+# Linux
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+
+# 启动 Minikube
+minikube start
+                </div>
+                
+                <p>确保你已经安装了 kubectl 命令行工具，用于与 Kubernetes 集群交互：</p>
+                <div class="code-block">
+# 验证 kubectl 是否正确配置
+kubectl version
+kubectl get nodes
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验 1：探索 Pod 网络</h2>
+            <div class="experiment-card">
+                <h3>1.1 创建并检查 Pod 网络接口</h3>
+                <p>在这个实验中，我们将创建一个 Pod 并检查其网络接口。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>创建一个简单的 Nginx Pod：</p>
+                    <div class="code-block">
+kubectl run nginx --image=nginx
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>等待 Pod 运行：</p>
+                    <div class="code-block">
+kubectl get pod nginx
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>检查 Pod 的 IP 地址：</p>
+                    <div class="code-block">
+kubectl get pod nginx -o wide
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>进入 Pod 并检查网络接口：</p>
+                    <div class="code-block">
+kubectl exec -it nginx -- bash
+ip addr
+route -n
+cat /etc/resolv.conf
+exit
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <p>在节点上查看与 Pod 相关的网络接口（需要 SSH 到节点）：</p>
+                    <div class="code-block">
+# 如果使用 Minikube
+minikube ssh
+
+# 查看网络接口
+ip addr | grep -A 5 cni
+
+# 查看网桥
+bridge link show
+
+# 查看与 Pod 相关的 iptables 规则
+sudo iptables-save | grep <pod-ip>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>1.2 测试 Pod 之间的通信</h3>
+                <p>在这个实验中，我们将创建多个 Pod 并测试它们之间的通信。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>创建第二个 Pod：</p>
+                    <div class="code-block">
+kubectl run busybox --image=busybox -- sleep 3600
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>获取两个 Pod 的 IP 地址：</p>
+                    <div class="code-block">
+kubectl get pods -o wide
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>从 busybox Pod 访问 nginx Pod：</p>
+                    <div class="code-block">
+# 替换 <nginx-pod-ip> 为实际的 IP 地址
+kubectl exec -it busybox -- wget -O- <nginx-pod-ip>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>使用 tcpdump 捕获 Pod 之间的通信（需要 SSH 到节点）：</p>
+                    <div class="code-block">
+# 如果使用 Minikube
+minikube ssh
+
+# 安装 tcpdump
+sudo apt-get update && sudo apt-get install -y tcpdump
+
+# 捕获 Pod 之间的通信
+sudo tcpdump -i any host <nginx-pod-ip> and host <busybox-pod-ip> -n
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验 2：探索 Service 网络</h2>
+            <div class="experiment-card">
+                <h3>2.1 创建并检查 Service</h3>
+                <p>在这个实验中，我们将创建一个 Service 并检查其工作原理。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>为 nginx Pod 创建一个 Service：</p>
+                    <div class="code-block">
+kubectl expose pod nginx --port=80 --name=nginx-service
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>检查 Service 详情：</p>
+                    <div class="code-block">
+kubectl get service nginx-service
+kubectl describe service nginx-service
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>检查 Service 的 Endpoints：</p>
+                    <div class="code-block">
+kubectl get endpoints nginx-service
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>通过 Service 访问 nginx Pod：</p>
+                    <div class="code-block">
+kubectl exec -it busybox -- wget -O- nginx-service
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <p>检查与 Service 相关的 iptables 规则（需要 SSH 到节点）：</p>
+                    <div class="code-block">
+# 如果使用 Minikube
+minikube ssh
+
+# 查看 iptables 规则
+sudo iptables-save | grep KUBE-SERVICES
+sudo iptables-save | grep <service-cluster-ip>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2.2 测试 Service 负载均衡</h3>
+                <p>在这个实验中，我们将创建一个具有多个 Pod 的 Deployment，并测试 Service 的负载均衡功能。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>创建一个 Deployment：</p>
+                    <div class="code-block">
+kubectl create deployment web --image=nginx --replicas=3
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>为 Deployment 创建一个 Service：</p>
+                    <div class="code-block">
+kubectl expose deployment web --port=80 --name=web-service
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>检查 Service 的 Endpoints：</p>
+                    <div class="code-block">
+kubectl get endpoints web-service
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>修改 Nginx 的默认页面，使每个 Pod 显示不同的内容：</p>
+                    <div class="code-block">
+# 获取 Pod 名称
+kubectl get pods -l app=web
+
+# 为每个 Pod 设置不同的页面内容
+kubectl exec -it <pod-1-name> -- bash -c 'echo "Pod 1" > /usr/share/nginx/html/index.html'
+kubectl exec -it <pod-2-name> -- bash -c 'echo "Pod 2" > /usr/share/nginx/html/index.html'
+kubectl exec -it <pod-3-name> -- bash -c 'echo "Pod 3" > /usr/share/nginx/html/index.html'
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <p>多次访问 Service，观察负载均衡效果：</p>
+                    <div class="code-block">
+# 创建一个临时 Pod 用于测试
+kubectl run test-client --image=busybox --rm -it -- sh
+
+# 在临时 Pod 中多次访问 Service
+for i in $(seq 1 10); do wget -O- -q web-service; done
+                    </div>
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2.3 创建不同类型的 Service</h3>
+                <p>在这个实验中，我们将创建不同类型的 Service，包括 ClusterIP、NodePort 和 LoadBalancer。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>创建 NodePort 类型的 Service：</p>
+                    <div class="code-block">
+kubectl expose deployment web --port=80 --type=NodePort --name=web-nodeport
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>获取 NodePort 端口号：</p>
+                    <div class="code-block">
+kubectl get service web-nodeport
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>通过节点 IP 和 NodePort 访问服务：</p>
+                    <div class="code-block">
+# 如果使用 Minikube
+minikube ip
+curl $(minikube ip):<nodeport>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>创建 LoadBalancer 类型的 Service（在支持的环境中）：</p>
+                    <div class="code-block">
+kubectl expose deployment web --port=80 --type=LoadBalancer --name=web-lb
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <p>检查 LoadBalancer Service 状态：</p>
+                    <div class="code-block">
+kubectl get service web-lb
+                    </div>
+                    <p>注意：在 Minikube 环境中，LoadBalancer 类型的 Service 不会获得外部 IP。可以使用 <code>minikube tunnel</code> 命令来模拟 LoadBalancer 功能。</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验 3：探索 Ingress</h2>
+            <div class="experiment-card">
+                <h3>3.1 部署 Ingress 控制器</h3>
+                <p>在这个实验中，我们将部署 Nginx Ingress 控制器并创建 Ingress 资源。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>在 Minikube 中启用 Ingress 插件：</p>
+                    <div class="code-block">
+minikube addons enable ingress
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>验证 Ingress 控制器是否运行：</p>
+                    <div class="code-block">
+kubectl get pods -n ingress-nginx
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>创建两个示例应用：</p>
+                    <div class="code-block">
+# 创建第一个应用
+kubectl create deployment app1 --image=nginx
+kubectl expose deployment app1 --port=80 --name=app1-service
+
+# 修改第一个应用的默认页面
+kubectl exec -it $(kubectl get pods -l app=app1 -o jsonpath='{.items[0].metadata.name}') -- bash -c 'echo "App 1" > /usr/share/nginx/html/index.html'
+
+# 创建第二个应用
+kubectl create deployment app2 --image=nginx
+kubectl expose deployment app2 --port=80 --name=app2-service
+
+# 修改第二个应用的默认页面
+kubectl exec -it $(kubectl get pods -l app=app2 -o jsonpath='{.items[0].metadata.name}') -- bash -c 'echo "App 2" > /usr/share/nginx/html/index.html'
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>创建 Ingress 资源：</p>
+                    <div class="code-block">
+# 创建 ingress.yaml 文件
+cat > ingress.yaml << EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /app1
+        pathType: Prefix
+        backend:
+          service:
+            name: app1-service
+            port:
+              number: 80
+      - path: /app2
+        pathType: Prefix
+        backend:
+          service:
+            name: app2-service
+            port:
+              number: 80
+EOF
+
+# 应用 Ingress 配置
+kubectl apply -f ingress.yaml
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <p>检查 Ingress 资源：</p>
+                    <div class="code-block">
+kubectl get ingress
+kubectl describe ingress example-ingress
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">6</span>
+                    <p>测试 Ingress 路由：</p>
+                    <div class="code-block">
+# 获取 Minikube IP
+minikube ip
+
+# 添加 hosts 文件条目（需要管理员权限）
+# Windows: C:\Windows\System32\drivers\etc\hosts
+# Linux/macOS: /etc/hosts
+# 添加以下行：
+# <minikube-ip> example.com
+
+# 测试访问
+curl -H "Host: example.com" http://<minikube-ip>/app1
+curl -H "Host: example.com" http://<minikube-ip>/app2
+                    </div>
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>3.2 配置 TLS</h3>
+                <p>在这个实验中，我们将为 Ingress 配置 TLS。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>生成自签名证书：</p>
+                    <div class="code-block">
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=example.com"
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>创建 TLS Secret：</p>
+                    <div class="code-block">
+kubectl create secret tls example-tls --key tls.key --cert tls.crt
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>更新 Ingress 配置，添加 TLS：</p>
+                    <div class="code-block">
+# 创建 ingress-tls.yaml 文件
+cat > ingress-tls.yaml << EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  tls:
+  - hosts:
+      - example.com
+    secretName: example-tls
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /app1
+        pathType: Prefix
+        backend:
+          service:
+            name: app1-service
+            port:
+              number: 80
+      - path: /app2
+        pathType: Prefix
+        backend:
+          service:
+            name: app2-service
+            port:
+              number: 80
+EOF
+
+# 应用更新后的 Ingress 配置
+kubectl apply -f ingress-tls.yaml
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>测试 HTTPS 访问：</p>
+                    <div class="code-block">
+curl -k -H "Host: example.com" https://<minikube-ip>/app1
+curl -k -H "Host: example.com" https://<minikube-ip>/app2
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验 4：探索 CNI 插件</h2>
+            <div class="experiment-card">
+                <h3>4.1 检查 CNI 配置</h3>
+                <p>在这个实验中，我们将检查 Kubernetes 集群中的 CNI 配置。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>SSH 到 Kubernetes 节点：</p>
+                    <div class="code-block">
+# 如果使用 Minikube
+minikube ssh
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>检查 CNI 配置文件：</p>
+                    <div class="code-block">
+ls -la /etc/cni/net.d/
+cat /etc/cni/net.d/*
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>检查 CNI 插件二进制文件：</p>
+                    <div class="code-block">
+ls -la /opt/cni/bin/
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>检查 Pod CIDR 分配：</p>
+                    <div class="code-block">
+# 返回到本地终端
+exit
+
+# 检查节点的 Pod CIDR
+kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'
+                    </div>
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>4.2 分析 CNI 插件工作原理</h3>
+                <p>在这个实验中，我们将分析 CNI 插件的工作原理。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>查看 kubelet 日志中与 CNI 相关的部分：</p>
+                    <div class="code-block">
+# 如果使用 Minikube
+minikube ssh
+
+# 查看 kubelet 日志
+journalctl -u kubelet | grep -i cni
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>检查网络接口和路由：</p>
+                    <div class="code-block">
+# 查看网络接口
+ip addr
+
+# 查看路由表
+ip route
+
+# 查看网桥
+bridge link show
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>检查 iptables 规则：</p>
+                    <div class="code-block">
+# 查看 iptables 规则
+sudo iptables-save
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>创建一个新的 Pod 并观察网络变化：</p>
+                    <div class="code-block">
+# 返回到本地终端
+exit
+
+# 创建一个新的 Pod
+kubectl run test-pod --image=nginx
+
+# 等待 Pod 运行
+kubectl get pod test-pod
+
+# 再次 SSH 到节点
+minikube ssh
+
+# 查看新创建的网络接口
+ip addr | grep -A 5 cni
+
+# 查看新的路由
+ip route | grep <pod-ip>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验 5：网络策略</h2>
+            <div class="experiment-card">
+                <h3>5.1 创建并测试网络策略</h3>
+                <p>在这个实验中，我们将创建网络策略并测试其效果。注意：此实验需要支持网络策略的 CNI 插件（如 Calico）。</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <p>创建测试命名空间和 Pod：</p>
+                    <div class="code-block">
+# 创建命名空间
+kubectl create namespace policy-test
+
+# 创建服务器 Pod
+kubectl run web --image=nginx -n policy-test --labels=app=web
+
+# 创建客户端 Pod
+kubectl run client-a --image=busybox -n policy-test --labels=app=client-a -- sleep 3600
+kubectl run client-b --image=busybox -n policy-test --labels=app=client-b -- sleep 3600
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <p>测试连通性（所有客户端都应该能够访问服务器）：</p>
+                    <div class="code-block">
+# 获取服务器 Pod 的 IP
+kubectl get pod web -n policy-test -o wide
+
+# 从客户端 A 访问服务器
+kubectl exec -it client-a -n policy-test -- wget -O- <web-pod-ip>
+
+# 从客户端 B 访问服务器
+kubectl exec -it client-b -n policy-test -- wget -O- <web-pod-ip>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <p>创建网络策略，只允许客户端 A 访问服务器：</p>
+                    <div class="code-block">
+# 创建 network-policy.yaml 文件
+cat > network-policy.yaml << EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-allow-client-a
+  namespace: policy-test
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: client-a
+EOF
+
+# 应用网络策略
+kubectl apply -f network-policy.yaml
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <p>再次测试连通性（只有客户端 A 应该能够访问服务器）：</p>
+                    <div class="code-block">
+# 从客户端 A 访问服务器（应该成功）
+kubectl exec -it client-a -n policy-test -- wget -O- <web-pod-ip>
+
+# 从客户端 B 访问服务器（应该失败）
+kubectl exec -it client-b -n policy-test -- wget -O- <web-pod-ip>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <p>清理资源：</p>
+                    <div class="code-block">
+kubectl delete namespace policy-test
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>总结</h2>
+            <p>通过以上实验，你应该对 Kubernetes 网络的工作原理有了更深入的理解。这些实验涵盖了 Pod 网络、Service 网络、Ingress 和 CNI 插件等核心概念，帮助你将理论知识应用到实践中。</p>
+            <p>在实际工作中，你可能会遇到更复杂的网络场景，如多集群网络、混合云网络等。建议你继续深入学习 Kubernetes 网络，探索更高级的主题。</p>
+            <a href="index.html" class="button">返回首页</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>

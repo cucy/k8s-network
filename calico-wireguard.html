@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calico WireGuard模式详解 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+    <meta name="description" content="深入解析Calico WireGuard模式的工作原理、配置方法、性能优化和故障排查">
+</head>
+<body>
+    <nav>
+        <div class="container">
+            <div class="logo">
+                <a href="index.html">Kubernetes网络学习指南</a>
+            </div>
+            <ul class="nav-links">
+                <li><a href="index.html">首页</a></li>
+                <li><a href="overlay-networks.html">Overlay网络</a></li>
+                <li><a href="geneve-technology.html">Geneve技术</a></li>
+                <li><a href="wireguard-overlay.html">WireGuard</a></li>
+                <li><a href="ebpf-networking.html">eBPF网络</a></li>
+                <li><a href="cni-overlay-integration.html">CNI与Overlay集成</a></li>
+                <li><a href="network-troubleshooting.html">网络故障排查</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <header class="page-header">
+        <div class="container">
+            <h1>Calico WireGuard模式详解</h1>
+            <p>深入理解Calico WireGuard的工作原理、配置方法、性能优化和故障排查</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Calico WireGuard模式简介</h2>
+            <p>Calico WireGuard模式是Calico网络解决方案中的一个重要特性，它通过集成现代、高性能的WireGuard VPN技术，为Kubernetes集群中的Pod通信提供端到端加密保护。WireGuard以其简单、高效和安全的特性，成为Kubernetes网络中保障数据传输安全的理想选择。</p>
+            
+            <div class="info-box">
+                <h3>为什么选择Calico WireGuard模式？</h3>
+                <p>Calico WireGuard模式在以下场景中特别有用：</p>
+                <ul>
+                    <li><strong>安全合规要求</strong>：当您的组织或行业法规要求加密所有网络通信时</li>
+                    <li><strong>多租户环境</strong>：在共享基础设施上运行多个租户的工作负载时</li>
+                    <li><strong>跨公共网络的集群</strong>：当Kubernetes节点通过公共互联网或不受信任的网络连接时</li>
+                    <li><strong>敏感数据处理</strong>：处理个人身份信息(PII)、金融数据或医疗记录等敏感信息时</li>
+                    <li><strong>零信任架构</strong>：实施零信任网络安全模型时</li>
+                </ul>
+            </div>
+            
+            <div class="comparison">
+                <h3>Calico网络模式对比</h3>
+                <table class="comparison-table">
+                    <tr>
+                        <th>特性</th>
+                        <th>Calico VXLAN</th>
+                        <th>Calico IPinIP</th>
+                        <th>Calico BGP直接路由</th>
+                        <th>Calico WireGuard</th>
+                    </tr>
+                    <tr>
+                        <td>封装协议</td>
+                        <td>VXLAN (L2 over UDP)</td>
+                        <td>IPinIP (L3 over IP)</td>
+                        <td>无封装</td>
+                        <td>WireGuard (加密UDP)</td>
+                    </tr>
+                    <tr>
+                        <td>封装开销</td>
+                        <td>50字节</td>
+                        <td>20字节</td>
+                        <td>0字节</td>
+                        <td>60字节</td>
+                    </tr>
+                    <tr>
+                        <td>跨子网支持</td>
+                        <td>良好</td>
+                        <td>良好</td>
+                        <td>需要额外配置</td>
+                        <td>良好</td>
+                    </tr>
+                    <tr>
+                        <td>安全性</td>
+                        <td>无加密</td>
+                        <td>无加密</td>
+                        <td>无加密</td>
+                        <td>强加密</td>
+                    </tr>
+                    <tr>
+                        <td>性能</td>
+                        <td>中等</td>
+                        <td>中高</td>
+                        <td>最高</td>
+                        <td>中等</td>
+                    </tr>
+                    <tr>
+                        <td>配置复杂度</td>
+                        <td>低</td>
+                        <td>低</td>
+                        <td>高</td>
+                        <td>中</td>
+                    </tr>
+                </table>
+            </div>
+        </section>
+        
+        <section>
+            <h2>WireGuard技术概述</h2>
+            <p>WireGuard是一种现代、快速、安全的VPN技术，它的设计理念是"简单且高效"。在Calico中集成WireGuard，使Kubernetes集群能够在保持高性能的同时提供强大的加密保护。</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">WireGuard核心特性</div>
+                    <div class="accordion-content">
+                        <h4>1. 简洁的代码库</h4>
+                        <p>WireGuard的核心代码仅约4,000行，这使其更易于审计和维护，减少了潜在的安全漏洞。相比之下，OpenVPN和IPsec的代码库分别超过100,000行和400,000行。</p>
+                        
+                        <h4>2. 现代密码学</h4>
+                        <p>WireGuard采用了一系列现代密码学技术：</p>
+                        <ul>
+                            <li><strong>ChaCha20</strong>：用于对称加密</li>
+                            <li><strong>Poly1305</strong>：用于消息认证</li>
+                            <li><strong>Curve25519</strong>：用于密钥协商</li>
+                            <li><strong>BLAKE2s</strong>：用于哈希</li>
+                            <li><strong>HKDF</strong>：用于密钥派生</li>
+                        </ul>
+                        
+                        <h4>3. 内核实现</h4>
+                        <p>WireGuard直接在Linux内核中实现，从Linux 5.6版本开始已被合并到主线内核中。这种实现方式提供了显著的性能优势，并减少了用户空间和内核空间之间的上下文切换。</p>
+                        
+                        <h4>4. 无状态设计</h4>
+                        <p>WireGuard采用无状态设计，不需要维护连接状态或处理复杂的握手过程。这使其更加稳定，并能更好地处理网络变化，如IP地址变更或网络中断。</p>
+                        
+                        <h4>5. 静默运行</h4>
+                        <p>WireGuard默认不响应未经认证的数据包，这使其在网络上"隐形"，减少了被扫描和攻击的可能性。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">WireGuard与传统VPN对比</div>
+                    <div class="accordion-content">
+                        <table class="comparison-table">
+                            <tr>
+                                <th>特性</th>
+                                <th>WireGuard</th>
+                                <th>IPsec</th>
+                                <th>OpenVPN</th>
+                            </tr>
+                            <tr>
+                                <td>代码复杂度</td>
+                                <td>低 (~4,000行)</td>
+                                <td>高 (~400,000行)</td>
+                                <td>中 (~100,000行)</td>
+                            </tr>
+                            <tr>
+                                <td>密码学</td>
+                                <td>现代 (ChaCha20, Poly1305)</td>
+                                <td>可配置 (常用AES)</td>
+                                <td>可配置 (常用AES)</td>
+                            </tr>
+                            <tr>
+                                <td>性能</td>
+                                <td>高</td>
+                                <td>中</td>
+                                <td>低</td>
+                            </tr>
+                            <tr>
+                                <td>配置复杂度</td>
+                                <td>低</td>
+                                <td>高</td>
+                                <td>中</td>
+                            </tr>
+                            <tr>
+                                <td>内核集成</td>
+                                <td>是 (Linux 5.6+)</td>
+                                <td>是</td>
+                                <td>否 (用户空间)</td>
+                            </tr>
+                            <tr>
+                                <td>握手复杂度</td>
+                                <td>简单 (1-RTT)</td>
+                                <td>复杂 (多RTT)</td>
+                                <td>复杂 (多RTT)</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <h2>Calico WireGuard架构详解</h2>
+            <p>Calico WireGuard模式在保留Calico原有网络架构的基础上，增加了WireGuard加密隧道层。这种设计使得加密过程对应用和网络策略透明，同时提供了强大的安全保障。</p>
+            
+            <div class="image-container">
+                <img src="svg/calico-wireguard.svg" alt="Calico WireGuard架构图" class="full-width-image">
+                <p class="image-caption">图1: Calico WireGuard架构示意图</p>
+            </div>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">Calico WireGuard组件架构</div>
+                    <div class="accordion-content">
+                        <h4>1. Felix组件</h4>
+                        <p>在启用WireGuard时，Calico的Felix组件负责：</p>
+                        <ul>
+                            <li>生成并管理WireGuard密钥对</li>
+                            <li>配置WireGuard网络接口</li>
+                            <li>设置加密隧道路由</li>
+                            <li>与其他节点交换公钥</li>
+                            <li>监控WireGuard状态</li>
+                        </ul>
+                        
+                        <h4>2. WireGuard内核模块</h4>
+                        <p>WireGuard内核模块负责：</p>
+                        <ul>
+                            <li>处理数据包的加密和解密</li>
+                            <li>管理加密会话</li>
+                            <li>实现密钥协商协议</li>
+                            <li>提供虚拟网络接口</li>
+                        </ul>
+                        
+                        <h4>3. Calico数据存储</h4>
+                        <p>Calico使用Kubernetes API或etcd存储：</p>
+                        <ul>
+                            <li>节点WireGuard公钥</li>
+                            <li>WireGuard配置信息</li>
+                            <li>加密状态和统计信息</li>
+                        </ul>
+                        
+                        <h4>4. CNI插件</h4>
+                        <p>Calico CNI插件在WireGuard模式下：</p>
+                        <ul>
+                            <li>配置Pod网络接口</li>
+                            <li>设置路由使Pod流量通过WireGuard接口</li>
+                            <li>应用网络策略</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">WireGuard接口与密钥管理</div>
+                    <div class="accordion-content">
+                        <h4>1. 接口创建</h4>
+                        <p>当启用WireGuard时，Felix在每个节点上创建名为<code>wireguard.cali</code>的虚拟接口。这个接口作为加密隧道的端点，处理所有需要加密的跨节点流量。</p>
+                        
+                        <h4>2. 密钥生成与轮换</h4>
+                        <p>Felix负责为每个节点生成WireGuard密钥对：</p>
+                        <ul>
+                            <li>私钥：保存在节点本地，用于解密接收的数据和加密发送的数据</li>
+                            <li>公钥：分发给集群中的其他节点，用于加密发送到该节点的数据</li>
+                        </ul>
+                        <p>Calico支持定期密钥轮换，提高长期运行集群的安全性。默认情况下，密钥每天轮换一次。</p>
+                        
+                        <h4>3. 公钥分发</h4>
+                        <p>节点的公钥通过Calico数据存储（Kubernetes API或etcd）分发给集群中的其他节点。每个节点维护一个包含所有其他节点公钥的列表，用于建立加密通信。</p>
+                        
+                        <div class="code-block">
+# 查看节点WireGuard公钥
+kubectl get node NODE_NAME -o yaml | grep wireguard.publicKey
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">数据包加密流程</div>
+                    <div class="accordion-content">
+                        <h4>1. 数据包封装结构</h4>
+                        <p>WireGuard加密的数据包结构如下：</p>
+                        <div class="code-block">
+外部IP头 (20字节)
+└── UDP头 (8字节，默认端口51820)
+    └── WireGuard头 (32字节)
+        └── 加密的原始IP数据包
+            └── 认证标签 (16字节)
+                        </div>
+                        <p>总封装开销约为60字节，略高于IPinIP(20字节)和VXLAN(50字节)。</p>
+                        
+                        <h4>2. 加密过程</h4>
+                        <p>当Pod发送跨节点数据包时：</p>
+                        <ol>
+                            <li>数据包通过Pod的网络命名空间发送</li>
+                            <li>经过Calico的路由规则，被定向到WireGuard接口</li>
+                            <li>WireGuard使用目标节点的公钥加密数据包</li>
+                            <li>加密后的数据包被封装在UDP数据包中</li>
+                            <li>通过物理网络发送到目标节点</li>
+                        </ol>
+                        
+                        <h4>3. 解密过程</h4>
+                        <p>当节点接收到加密数据包时：</p>
+                        <ol>
+                            <li>WireGuard接口接收UDP封装的加密数据包</li>
+                            <li>使用节点私钥解密数据包</li>
+                            <li>验证数据包的完整性和认证</li>
+                            <li>解封装原始IP数据包</li>
+                            <li>将数据包转发到目标Pod</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <h2>Calico WireGuard工作原理</h2>
+            <p>Calico WireGuard模式在保持Calico原有网络模型的同时，通过添加加密层提供端到端安全通信。下面详细介绍其工作原理和通信流程。</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">WireGuard启用流程</div>
+                    <div class="accordion-content">
+                        <h4>1. 前提条件检查</h4>
+                        <p>启用WireGuard前，Felix会检查：</p>
+                        <ul>
+                            <li>内核是否支持WireGuard（Linux 5.6+原生支持，较早版本需要安装模块）</li>
+                            <li>是否安装了WireGuard工具</li>
+                            <li>节点是否有足够权限创建和配置WireGuard接口</li>
+                        </ul>
+                        
+                        <h4>2. 初始化步骤</h4>
+                        <p>启用WireGuard后，Felix执行以下步骤：</p>
+                        <ol>
+                            <li>生成WireGuard密钥对（如果不存在）</li>
+                            <li>创建WireGuard虚拟接口</li>
+                            <li>将公钥发布到Calico数据存储</li>
+                            <li>收集其他节点的公钥</li>
+                            <li>配置WireGuard对等体（每个远程节点一个）</li>
+                            <li>设置路由规则，将Pod CIDR的流量定向到WireGuard接口</li>
+                        </ol>
+                        
+                        <h4>3. 持续管理</h4>
+                        <p>Felix持续执行以下任务：</p>
+                        <ul>
+                            <li>监控集群节点变化，添加或删除对等体</li>
+                            <li>定期轮换WireGuard密钥</li>
+                            <li>监控WireGuard接口状态和性能</li>
+                            <li>在节点重启后恢复WireGuard配置</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">Pod间通信流程</div>
+                    <div class="accordion-content">
+                        <h4>1. 同节点Pod通信</h4>
+                        <p>当两个Pod位于同一节点时，即使启用了WireGuard，它们之间的通信也不会经过加密隧道，而是通过节点内部的标准Calico路由直接通信。这避免了不必要的加密开销。</p>
+                        
+                        <h4>2. 跨节点Pod通信</h4>
+                        <p>当Pod A（节点1）需要与Pod B（节点2）通信时：</p>
+                        <ol>
+                            <li>Pod A发送数据包到其默认网关</li>
+                            <li>数据包经过节点1的路由表，被定向到wireguard.cali接口</li>
+                            <li>WireGuard使用节点2的公钥加密数据包</li>
+                            <li>加密数据包通过UDP封装发送到节点2</li>
+                            <li>节点2的WireGuard接口接收并解密数据包</li>
+                            <li>解密后的数据包通过节点2的路由表转发到Pod B</li>
+                        </ol>
+                        
+                        <h4>3. 与外部网络通信</h4>
+                        <p>默认情况下，Pod与集群外部的通信不会经过WireGuard加密：</p>
+                        <ul>
+                            <li>出站流量：从Pod到外部网络的流量通过节点的默认路由发送，不经过加密</li>
+                            <li>入站流量：从外部网络到Pod的流量通过节点的NAT或直接路由转发，不经过加密</li>
+                        </ul>
+                        <p>如果需要加密与外部网络的通信，需要额外配置VPN或其他安全措施。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">与网络策略集成</div>
+                    <div class="accordion-content">
+                        <p>WireGuard加密层与Calico网络策略完全兼容，两者协同工作的方式如下：</p>
+                        
+                        <h4>1. 加密与策略执行顺序</h4>
+                        <ul>
+                            <li><strong>出站流量</strong>：网络策略 → 加密 → 发送</li>
+                            <li><strong>入站流量</strong>：接收 → 解密 → 网络策略</li>
+                        </ul>
+                        <p>这确保了所有通过WireGuard的流量仍然受到网络策略的控制。</p>
+                        
+                        <h4>2. 加密状态可见性</h4>
+                        <p>Calico提供了加密状态的可见性，允许管理员查看哪些流量被加密：</p>
+                        <div class="code-block">
+# 查看节点WireGuard统计信息
+kubectl exec -n calico-system calico-node-xxxxx -- wg show
+                        </div>
+                        
+                        <h4>3. 基于加密状态的策略</h4>
+                        <p>虽然当前版本的Calico不直接支持基于加密状态的网络策略，但可以通过以下方式间接实现：</p>
+                        <ul>
+                            <li>使用节点选择器标记启用WireGuard的节点</li>
+                            <li>基于这些标签创建网络策略</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <h2>Calico WireGuard配置方法</h2>
+            <p>配置Calico WireGuard相对简单，只需几个步骤即可启用节点间通信加密。以下是详细的配置指南，包括前提条件、基本配置和高级选项。</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">前提条件</div>
+                    <div class="accordion-content">
+                        <h4>1. 内核要求</h4>
+                        <p>WireGuard需要以下内核支持：</p>
+                        <ul>
+                            <li>Linux 5.6+：内核原生支持WireGuard</li>
+                            <li>Linux 3.10+：需要安装WireGuard内核模块</li>
+                        </ul>
+                        <p>检查内核版本：</p>
+                        <div class="code-block">
+uname -r
+                        </div>
+                        
+                        <h4>2. 安装WireGuard工具</h4>
+                        <p>在每个Kubernetes节点上安装WireGuard工具：</p>
+                        <div class="code-block">
+# Debian/Ubuntu
+apt-get update
+apt-get install -y wireguard wireguard-tools
+
+# CentOS/RHEL 8
+dnf copr enable jdoss/wireguard
+dnf install -y wireguard-tools
+
+# CentOS/RHEL 7
+yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+yum install -y https://www.elrepo.org/elrepo-release-7.el7.elrepo.noarch.rpm
+yum install -y kmod-wireguard wireguard-tools
+                        </div>
+                        
+                        <h4>3. 验证WireGuard安装</h4>
+                        <p>验证WireGuard是否正确安装：</p>
+                        <div class="code-block">
+# 检查WireGuard模块
+lsmod | grep wireguard
+
+# 检查WireGuard工具
+wg --version
+                        </div>
+                        
+                        <h4>4. Calico版本要求</h4>
+                        <p>WireGuard支持需要Calico v3.13或更高版本。检查Calico版本：</p>
+                        <div class="code-block">
+kubectl get pods -n calico-system -l k8s-app=calico-node -o yaml | grep image: | uniq
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">基本配置</div>
+                    <div class="accordion-content">
+                        <h4>1. 使用Felix配置启用WireGuard</h4>
+                        <p>使用以下命令在集群中启用WireGuard加密：</p>
+                        <div class="code-block">
+# 使用calicoctl
+cat &lt;&lt;EOF | calicoctl apply -f -
+kind: FelixConfiguration
+apiVersion: projectcalico.org/v3
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+EOF
+
+# 或使用kubectl（Calico v3.14+）
+cat &lt;&lt;EOF | kubectl apply -f -
+kind: FelixConfiguration
+apiVersion: projectcalico.org/v3
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+EOF
+                        </div>
+                        
+                        <h4>2. 验证WireGuard状态</h4>
+                        <p>确认WireGuard已在所有节点上启用：</p>
+                        <div class="code-block">
+# 检查节点是否已发布WireGuard公钥
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[?(@.type=="Ready")].status}{"\t"}{.metadata.annotations.projectcalico\.org/wireguardPublicKey}{"\n"}{end}'
+
+# 检查WireGuard接口
+kubectl exec -n calico-system calico-node-xxxxx -- ip -d link show wireguard.cali
+
+# 检查WireGuard对等体配置
+kubectl exec -n calico-system calico-node-xxxxx -- wg show
+                        </div>
+                        
+                        <h4>3. 配置MTU</h4>
+                        <p>WireGuard封装会增加约60字节的开销，需要相应调整MTU：</p>
+                        <div class="code-block">
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+  wireguardMTU: 1380
+EOF
+                        </div>
+                        <p>注意：默认MTU为1440，如果您的网络MTU为1500，建议将WireGuard MTU设置为1440（1500 - 60）。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">高级配置选项</div>
+                    <div class="accordion-content">
+                        <h4>1. 配置WireGuard监听端口</h4>
+                        <p>默认情况下，WireGuard使用UDP端口51820。如果需要更改端口：</p>
+                        <div class="code-block">
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+  wireguardListeningPort: 51821
+EOF
+                        </div>
+                        
+                        <h4>2. 配置密钥轮换</h4>
+                        <p>默认情况下，WireGuard密钥每天轮换一次。可以自定义轮换间隔：</p>
+                        <div class="code-block">
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+  wireguardKeyRotationSeconds: 86400  # 24小时
+EOF
+                        </div>
+                        
+                        <h4>3. 选择性启用WireGuard</h4>
+                        <p>如果只想在特定节点上启用WireGuard，可以使用节点标签：</p>
+                        <div class="code-block">
+# 标记节点
+kubectl label node NODE_NAME wireguard=enabled
+
+# 创建特定于节点的Felix配置
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: node-specific
+spec:
+  wireguardEnabled: true
+  nodeSelector: wireguard == 'enabled'
+EOF
+                        </div>
+                        
+                        <h4>4. 与Calico eBPF集成</h4>
+                        <p>WireGuard可以与Calico的eBPF数据平面一起使用，提供更好的性能：</p>
+                        <div class="code-block">
+# 启用eBPF和WireGuard
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+  bpfEnabled: true
+EOF
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">禁用WireGuard</div>
+                    <div class="accordion-content">
+                        <p>如果需要禁用WireGuard加密，可以使用以下命令：</p>
+                        <div class="code-block">
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  wireguardEnabled: false
+EOF
+                        </div>
+                        <p>禁用后，Felix会：</p>
+                        <ul>
+                            <li>删除WireGuard接口</li>
+                            <li>恢复原始路由配置</li>
+                            <li>从数据存储中删除公钥</li>
+                        </ul>
+                        <p>所有Pod通信将恢复为未加密状态。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <h2>性能优化与故障排查</h2>
+            <p>虽然WireGuard设计为高性能的加密协议，但在Kubernetes环境中使用时仍需考虑性能优化和可能的故障排查。以下是相关指南和最佳实践。</p>
+            
+            <div class="accordion">
+                <div class="accordion-item">
+                    <div class="accordion-header">性能优化</div>
+                    <div class="accordion-content">
+                        <h4>1. MTU优化</h4>
+                        <p>正确设置MTU对WireGuard性能至关重要：</p>
+                        <ul>
+                            <li>测量网络路径MTU：<code>ping -c 4 -M do -s 1500 TARGET_IP</code></li>
+                            <li>计算WireGuard MTU：<code>网络MTU - 60</code>（WireGuard开销）</li>
+                            <li>配置WireGuard MTU：</li>
+                        </ul>
+                        <div class="code-block">
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+  wireguardMTU: 1420  # 假设网络MTU为1480
+EOF
+                        </div>
+                        
+                        <h4>2. CPU优化</h4>
+                        <p>WireGuard加密会增加CPU负载，可以通过以下方式优化：</p>
+                        <ul>
+                            <li>确保CPU支持AES-NI指令集（Intel）或ARMv8加密扩展（ARM）</li>
+                            <li>检查CPU加密指令支持：<code>grep -m1 -o aes /proc/cpuinfo</code></li>
+                            <li>调整内核参数以优化加密性能：</li>
+                        </ul>
+                        <div class="code-block">
+cat &lt;&lt;EOF > /etc/sysctl.d/90-wireguard-performance.conf
+net.core.rmem_max=2500000
+net.core.wmem_max=2500000
+EOF
+
+sysctl -p /etc/sysctl.d/90-wireguard-performance.conf
+                        </div>
+                        
+                        <h4>3. 与eBPF集成</h4>
+                        <p>Calico的eBPF数据平面可以与WireGuard结合使用，提供更好的性能：</p>
+                        <div class="code-block">
+# 启用eBPF和WireGuard
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  wireguardEnabled: true
+  bpfEnabled: true
+  bpfDisableUnprivileged: true
+EOF
+                        </div>
+                        <p>eBPF数据平面可以减少数据包处理的上下文切换，提高加密流量的吞吐量。</p>
+                        
+                        <h4>4. 节点放置策略</h4>
+                        <p>优化节点放置可以减少加密开销：</p>
+                        <ul>
+                            <li>使用Pod亲和性将频繁通信的Pod调度到同一节点</li>
+                            <li>使用节点亲和性将安全敏感的Pod调度到启用WireGuard的节点</li>
+                        </ul>
+                        <div class="code-block">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secure-pod
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: wireguard
+            operator: In
+            values:
+            - enabled
+  containers:
+  - name: secure-container
+    image: nginx
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">常见问题排查</div>
+                    <div class="accordion-content">
+                        <h4>1. WireGuard未启用</h4>
+                        <p>如果WireGuard未正确启用，检查以下几点：</p>
+                        <ul>
+                            <li>确认内核支持：<code>lsmod | grep wireguard</code></li>
+                            <li>检查Felix日志中的WireGuard相关错误：</li>
+                        </ul>
+                        <div class="code-block">
+kubectl logs -n calico-system calico-node-xxxxx -c calico-node | grep -i wireguard
+                        </div>
+                        <p>常见错误包括：</p>
+                        <ul>
+                            <li>"WireGuard is not supported"：内核不支持或未安装模块</li>
+                            <li>"Failed to create WireGuard device"：权限问题或资源限制</li>
+                        </ul>
+                        
+                        <h4>2. 节点间通信问题</h4>
+                        <p>如果启用WireGuard后节点间通信出现问题：</p>
+                        <ul>
+                            <li>检查WireGuard接口状态：</li>
+                        </ul>
+                        <div class="code-block">
+kubectl exec -n calico-system calico-node-xxxxx -- ip -d link show wireguard.cali
+kubectl exec -n calico-system calico-node-xxxxx -- wg show
+                        </div>
+                        <ul>
+                            <li>检查路由配置：</li>
+                        </ul>
+                        <div class="code-block">
+kubectl exec -n calico-system calico-node-xxxxx -- ip route | grep wireguard
+                        </div>
+                        <ul>
+                            <li>检查节点间连通性：</li>
+                        </ul>
+                        <div class="code-block">
+# 在源节点上
+kubectl exec -n calico-system calico-node-source -- ping -c 4 TARGET_NODE_IP
+                        </div>
+                        
+                        <h4>3. MTU相关问题</h4>
+                        <p>MTU配置不当可能导致数据包分片或丢弃：</p>
+                        <ul>
+                            <li>检查当前MTU设置：</li>
+                        </ul>
+                        <div class="code-block">
+kubectl exec -n calico-system calico-node-xxxxx -- ip -d link show wireguard.cali | grep mtu
+                        </div>
+                        <ul>
+                            <li>测试不同大小的数据包：</li>
+                        </ul>
+                        <div class="code-block">
+# 从一个Pod向另一个Pod发送不同大小的数据包
+kubectl exec -it POD_NAME -- ping -c 4 -s 1400 TARGET_POD_IP
+                        </div>
+                        <p>如果较大的数据包失败但较小的成功，通常表示MTU问题。</p>
+                        
+                        <h4>4. 性能问题</h4>
+                        <p>如果启用WireGuard后性能下降明显：</p>
+                        <ul>
+                            <li>测量网络性能：</li>
+                        </ul>
+                        <div class="code-block">
+# 安装性能测试工具
+kubectl apply -f https://k8s.io/examples/admin/dns/dnsutils.yaml
+
+# 测试网络性能
+kubectl exec -it dnsutils -- iperf3 -c TARGET_POD_IP
+                        </div>
+                        <ul>
+                            <li>检查CPU使用率：</li>
+                        </ul>
+                        <div class="code-block">
+kubectl top nodes
+                        </div>
+                        <p>如果CPU使用率过高，考虑使用支持硬件加速的实例类型或启用eBPF数据平面。</p>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <div class="accordion-header">监控与诊断</div>
+                    <div class="accordion-content">
+                        <h4>1. WireGuard状态监控</h4>
+                        <p>监控WireGuard接口状态和性能：</p>
+                        <div class="code-block">
+# 查看WireGuard接口统计信息
+kubectl exec -n calico-system calico-node-xxxxx -- wg show
+
+# 查看接口流量统计
+kubectl exec -n calico-system calico-node-xxxxx -- ip -s link show wireguard.cali
+                        </div>
+                        
+                        <h4>2. 加密流量分析</h4>
+                        <p>分析WireGuard加密流量：</p>
+                        <div class="code-block">
+# 捕获WireGuard UDP流量
+kubectl exec -n calico-system calico-node-xxxxx -- tcpdump -i any udp port 51820 -n
+                        </div>
+                        <p>注意：由于流量已加密，您只能看到封装的UDP数据包，无法查看内部内容。</p>
+                        
+                        <h4>3. 日志分析</h4>
+                        <p>分析Calico日志中的WireGuard相关信息：</p>
+                        <div class="code-block">
+# 增加Felix日志级别
+cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: projectcalico.org/v3
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  logSeverityScreen: Debug
+EOF
+
+# 查看详细日志
+kubectl logs -n calico-system calico-node-xxxxx -c calico-node | grep -i wireguard
+                        </div>
+                        
+                        <h4>4. 集成Prometheus监控</h4>
+                        <p>如果使用Prometheus监控Kubernetes集群，可以监控以下WireGuard相关指标：</p>
+                        <ul>
+                            <li><code>felix_wireguard_enabled</code>：WireGuard是否启用</li>
+                            <li><code>felix_wireguard_connections</code>：WireGuard连接数</li>
+                            <li><code>felix_wireguard_key_rotation</code>：密钥轮换事件</li>
+                        </ul>
+                        <p>这些指标可以帮助您了解WireGuard的运行状态和性能。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <h2>总结与最佳实践</h2>
+            <p>Calico WireGuard为Kubernetes集群提供了强大的加密保护，同时保持了较高的性能。以下是使用Calico WireGuard的一些最佳实践和总结。</p>
+            
+            <div class="info-box">
+                <h3>何时选择WireGuard模式</h3>
+                <ul>
+                    <li><strong>安全合规要求</strong>：当需要满足数据加密传输的合规要求时</li>
+                    <li><strong>多租户环境</strong>：在共享基础设施上隔离不同租户的流量</li>
+                    <li><strong>跨公共网络的集群</strong>：当Kubernetes节点通过公共互联网连接时</li>
+                    <li><strong>敏感数据处理</strong>：处理需要额外保护的敏感信息时</li>
+                </ul>
+            </div>
+            
+            <div class="info-box">
+                <h3>最佳实践</h3>
+                <ol>
+                    <li><strong>正确配置MTU</strong>：确保WireGuard MTU比物理网络MTU小60字节</li>
+                    <li><strong>使用Linux 5.6+内核</strong>：利用内核原生WireGuard支持获得最佳性能</li>
+                    <li><strong>结合eBPF数据平面</strong>：同时启用WireGuard和eBPF以获得更好的性能</li>
+                    <li><strong>定期轮换密钥</strong>：配置适当的密钥轮换周期增强安全性</li>
+                    <li><strong>监控加密状态</strong>：定期检查WireGuard接口状态和性能</li>
+                    <li><strong>优化Pod调度</strong>：使用亲和性规则减少跨节点加密通信</li>
+                </ol>
+            </div>
+            
+            <div class="resources">
+                <h3>深入学习资源</h3>
+                <div class="resource">
+                    <h4>官方文档</h4>
+                    <ul>
+                        <li><a href="https://docs.projectcalico.org/security/encrypt-cluster-pod-traffic" target="_blank">Calico WireGuard官方文档</a></li>
+                        <li><a href="https://www.wireguard.com/papers/wireguard.pdf" target="_blank">WireGuard技术白皮书</a></li>
+                        <li><a href="https://docs.projectcalico.org/reference/felix/configuration" target="_blank">Felix配置参考</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resource">
+                    <h4>技术规范</h4>
+                    <ul>
+                        <li><a href="https://www.wireguard.com/protocol/" target="_blank">WireGuard协议规范</a></li>
+                        <li><a href="https://github.com/projectcalico/calico" target="_blank">Calico GitHub仓库</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resource">
+                    <h4>相关页面</h4>
+                    <ul>
+                        <li><a href="overlay-networks.html">Overlay网络概述</a></li>
+                        <li><a href="cni-overlay-integration.html">CNI与Overlay集成</a></li>
+                        <li><a href="calico-ipinip.html">Calico IPinIP模式</a></li>
+                        <li><a href="calico-vxlan.html">Calico VXLAN模式</a></li>
+                        <li><a href="wireguard-overlay.html">WireGuard技术详解</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

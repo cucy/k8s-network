@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="800" height="600" fill="#f8f9fa" />
+  
+  <!-- 标题 -->
+  <text x="400" y="40" font-family="Arial" font-size="24" text-anchor="middle" fill="#1890ff" font-weight="bold">Flannel VXLAN性能优化策略</text>
+  
+  <!-- 图例 -->
+  <g transform="translate(50, 70)">
+    <rect x="0" y="0" width="15" height="15" fill="#f6ffed" stroke="#52c41a" stroke-width="1" />
+    <text x="25" y="12" font-family="Arial" font-size="14" fill="#000">DirectRouting</text>
+    
+    <rect x="150" y="0" width="15" height="15" fill="#fff2e8" stroke="#fa8c16" stroke-width="1" />
+    <text x="175" y="12" font-family="Arial" font-size="14" fill="#000">硬件卸载</text>
+    
+    <rect x="300" y="0" width="15" height="15" fill="#f9f0ff" stroke="#722ed1" stroke-width="1" />
+    <text x="325" y="12" font-family="Arial" font-size="14" fill="#000">MTU优化</text>
+    
+    <rect x="450" y="0" width="15" height="15" fill="#fff0f6" stroke="#eb2f96" stroke-width="1" />
+    <text x="475" y="12" font-family="Arial" font-size="14" fill="#000">内核参数</text>
+    
+    <rect x="600" y="0" width="15" height="15" fill="#f0f5ff" stroke="#2f54eb" stroke-width="1" />
+    <text x="625" y="12" font-family="Arial" font-size="14" fill="#000">综合优化</text>
+  </g>
+  
+  <!-- 基准性能区域 -->
+  <rect x="100" y="110" width="600" height="60" rx="5" fill="#e6f7ff" stroke="#1890ff" stroke-width="1" />
+  <text x="400" y="135" font-family="Arial" font-size="18" text-anchor="middle" fill="#0050b3">标准VXLAN配置</text>
+  <text x="400" y="155" font-family="Arial" font-size="14" text-anchor="middle" fill="#0050b3">带宽: 8.5 Gbps | 延迟: 120 μs | CPU使用率: 中</text>
+  
+  <!-- 性能对比图表 -->
+  <g transform="translate(100, 400)">
+    <!-- 坐标轴 -->
+    <line x1="0" y1="0" x2="0" y2="-200" stroke="#000" stroke-width="1" />
+    <line x1="0" y1="0" x2="600" y2="0" stroke="#000" stroke-width="1" />
+    
+    <!-- Y轴标签 -->
+    <text x="-5" y="-180" font-family="Arial" font-size="12" text-anchor="end">10.2G</text>
+    <text x="-5" y="-150" font-family="Arial" font-size="12" text-anchor="end">8.5G</text>
+    <text x="-5" y="-100" font-family="Arial" font-size="12" text-anchor="end">5G</text>
+    <text x="-5" y="-50" font-family="Arial" font-size="12" text-anchor="end">1G</text>
+    
+    <!-- 标准VXLAN性能柱状图 -->
+    <rect x="50" y="-150" width="40" height="150" fill="#e6f7ff" stroke="#1890ff" stroke-width="1" />
+    <text x="70" y="15" font-family="Arial" font-size="12" text-anchor="middle">标准</text>
+    
+    <!-- DirectRouting性能柱状图 -->
+    <rect x="150" y="-172" width="40" height="172" fill="#f6ffed" stroke="#52c41a" stroke-width="1" />
+    <text x="170" y="15" font-family="Arial" font-size="12" text-anchor="middle">Direct</text>
+    <text x="170" y="-180" font-family="Arial" font-size="12" text-anchor="middle">+15%</text>
+    
+    <!-- 硬件卸载性能柱状图 -->
+    <rect x="250" y="-162" width="40" height="162" fill="#fff2e8" stroke="#fa8c16" stroke-width="1" />
+    <text x="270" y="15" font-family="Arial" font-size="12" text-anchor="middle">硬件</text>
+    <text x="270" y="-170" font-family="Arial" font-size="12" text-anchor="middle">+8%</text>
+    
+    <!-- MTU优化性能柱状图 -->
+    <rect x="350" y="-168" width="40" height="168" fill="#f9f0ff" stroke="#722ed1" stroke-width="1" />
+    <text x="370" y="15" font-family="Arial" font-size="12" text-anchor="middle">MTU</text>
+    <text x="370" y="-176" font-family="Arial" font-size="12" text-anchor="middle">+12%</text>
+    
+    <!-- 内核参数性能柱状图 -->
+    <rect x="450" y="-157" width="40" height="157" fill="#fff0f6" stroke="#eb2f96" stroke-width="1" />
+    <text x="470" y="15" font-family="Arial" font-size="12" text-anchor="middle">内核</text>
+    <text x="470" y="-165" font-family="Arial" font-size="12" text-anchor="middle">+5%</text>
+    
+    <!-- 全部优化性能柱状图 -->
+    <rect x="550" y="-180" width="40" height="180" fill="#f0f5ff" stroke="#2f54eb" stroke-width="1" />
+    <text x="570" y="15" font-family="Arial" font-size="12" text-anchor="middle">全部</text>
+    <text x="570" y="-188" font-family="Arial" font-size="12" text-anchor="middle">+20%</text>
+  </g>
+  
+  <!-- 优化策略详情 -->
+  <g transform="translate(150, 200)">
+    <!-- DirectRouting -->
+    <rect x="0" y="0" width="120" height="80" rx="5" fill="#f6ffed" stroke="#52c41a" stroke-width="1" />
+    <text x="60" y="20" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#135200">DirectRouting</text>
+    <text x="60" y="45" font-family="Arial" font-size="12" text-anchor="middle" fill="#135200">性能提升: +15%</text>
+    <text x="60" y="65" font-family="Arial" font-size="12" text-anchor="middle" fill="#135200">延迟降低: -30%</text>
+  </g>
+  
+  <g transform="translate(300, 200)">
+    <!-- 硬件卸载 -->
+    <rect x="0" y="0" width="120" height="80" rx="5" fill="#fff2e8" stroke="#fa8c16" stroke-width="1" />
+    <text x="60" y="20" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#873800">硬件卸载</text>
+    <text x="60" y="45" font-family="Arial" font-size="12" text-anchor="middle" fill="#873800">性能提升: +8%</text>
+    <text x="60" y="65" font-family="Arial" font-size="12" text-anchor="middle" fill="#873800">CPU降低: -70%</text>
+  </g>
+  
+  <g transform="translate(450, 200)">
+    <!-- MTU优化 -->
+    <rect x="0" y="0" width="120" height="80" rx="5" fill="#f9f0ff" stroke="#722ed1" stroke-width="1" />
+    <text x="60" y="20" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#391085">MTU优化</text>
+    <text x="60" y="45" font-family="Arial" font-size="12" text-anchor="middle" fill="#391085">性能提升: +12%</text>
+    <text x="60" y="65" font-family="Arial" font-size="12" text-anchor="middle" fill="#391085">大包效率: +25%</text>
+  </g>
+  
+  <g transform="translate(600, 200)">
+    <!-- 内核参数 -->
+    <rect x="0" y="0" width="120" height="80" rx="5" fill="#fff0f6" stroke="#eb2f96" stroke-width="1" />
+    <text x="60" y="20" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#c41d7f">内核参数</text>
+    <text x="60" y="45" font-family="Arial" font-size="12" text-anchor="middle" fill="#c41d7f">性能提升: +5%</text>
+    <text x="60" y="65" font-family="Arial" font-size="12" text-anchor="middle" fill="#c41d7f">高并发: +20%</text>
+  </g>
+  
+  <!-- 综合优化效果 -->
+  <rect x="250" y="500" width="300" height="70" rx="5" fill="#f0f5ff" stroke="#2f54eb" stroke-width="1" />
+  <text x="400" y="525" font-family="Arial" font-size="16" text-anchor="middle" font-weight="bold" fill="#10239e">综合优化效果</text>
+  <text x="400" y="550" font-family="Arial" font-size="14" text-anchor="middle" fill="#10239e">带宽: 10.2 Gbps (+20%) | 延迟: 75 μs (-38%)</text>
+</svg>

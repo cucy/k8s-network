@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veth 对与网络命名空间基础 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Veth 对与网络命名空间基础</h2>
+            <p>网络命名空间（Network Namespace）是 Linux 内核提供的一种网络隔离机制，而 Veth 对是连接不同网络命名空间的关键技术。本页将详细介绍 Veth 对如何与网络命名空间结合使用，实现隔离网络环境之间的通信。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/veth-namespaces.svg" class="diagram">
+                    Veth 对与网络命名空间示意图
+                </object>
+            </div>
+            
+            <div class="page-navigation">
+                <h3>Veth 对系列文章</h3>
+                <ul>
+                    <li><a href="veth-pairs.html">Veth 对概述</a></li>
+                    <li><a href="veth-creation.html">Veth 对的创建与管理</a></li>
+                    <li><a href="veth-namespaces-basics.html" class="active">Veth 对与网络命名空间基础</a></li>
+                    <li><a href="veth-namespaces-advanced.html">Veth 对与网络命名空间高级应用</a></li>
+                    <li><a href="veth-bridges.html">Veth 对与网桥</a></li>
+                    <li><a href="veth-kubernetes.html">Veth 对在 Kubernetes 中的应用</a></li>
+                    <li><a href="veth-troubleshooting.html">Veth 对故障排除</a></li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>网络命名空间回顾</h2>
+            <p>在深入了解 Veth 对与网络命名空间的结合使用之前，让我们先简要回顾网络命名空间的概念：</p>
+            
+            <div class="info-box">
+                <h3>什么是网络命名空间？</h3>
+                <p>网络命名空间是 Linux 内核提供的一种隔离机制，它可以创建多个独立的网络栈，每个网络栈拥有自己的：</p>
+                <ul>
+                    <li>网络设备（如 eth0、lo 等）</li>
+                    <li>IP 地址</li>
+                    <li>路由表</li>
+                    <li>防火墙规则</li>
+                    <li>套接字</li>
+                    <li>/proc/net 目录</li>
+                    <li>端口空间</li>
+                </ul>
+                <p>网络命名空间是容器网络隔离的基础，也是 Kubernetes Pod 网络实现的核心技术之一。</p>
+            </div>
+            
+            <h3>网络命名空间的基本操作</h3>
+            <div class="code-block">
+# 创建网络命名空间
+ip netns add ns1
+
+# 列出所有网络命名空间
+ip netns list
+
+# 在网络命名空间中执行命令
+ip netns exec ns1 ip addr
+
+# 删除网络命名空间
+ip netns delete ns1
+</div>
+            
+            <p>默认情况下，新创建的网络命名空间只有一个回环接口（lo），并且是关闭状态。这意味着网络命名空间是完全隔离的，无法与外部网络通信。这就是 Veth 对发挥作用的地方。</p>
+        </section>
+
+        <section>
+            <h2>Veth 对与网络命名空间的结合</h2>
+            <p>Veth 对是连接不同网络命名空间的主要方式，它提供了一个双向通道，使隔离的网络环境能够相互通信。</p>
+            
+            <h3>为什么需要 Veth 对？</h3>
+            <p>网络命名空间默认是完全隔离的，这种隔离虽然提供了安全性，但也带来了一个问题：如何让隔离的网络环境与外部通信？这就是 Veth 对的主要用途：</p>
+            <ul>
+                <li>连接不同的网络命名空间</li>
+                <li>连接网络命名空间与主机网络</li>
+                <li>为容器提供网络连接</li>
+            </ul>
+            
+            <h3>Veth 对连接网络命名空间的工作原理</h3>
+            <ol>
+                <li>创建一对 Veth 设备</li>
+                <li>将一端放入一个网络命名空间</li>
+                <li>将另一端放入另一个网络命名空间（或保留在主机网络命名空间）</li>
+                <li>配置两端的 IP 地址</li>
+                <li>启用两端设备</li>
+            </ol>
+            
+            <p>这样，两个网络命名空间就可以通过 Veth 对直接通信，打破了网络隔离的壁垒。</p>
+        </section>
+
+        <section>
+            <h2>基本示例：连接两个网络命名空间</h2>
+            <p>下面是一个基本示例，演示如何使用 Veth 对连接两个网络命名空间：</p>
+            
+            <div class="experiment-card">
+                <h3>实验：使用 Veth 对连接两个网络命名空间</h3>
+                <p>在这个实验中，我们将创建两个网络命名空间（ns1 和 ns2），并使用 Veth 对连接它们。</p>
+                
+                <h4>步骤 1：创建网络命名空间</h4>
+                <div class="code-block">
+# 创建两个网络命名空间
+sudo ip netns add ns1
+sudo ip netns add ns2
+
+# 验证创建结果
+ip netns list
+</div>
+                
+                <h4>步骤 2：创建 Veth 对</h4>
+                <div class="code-block">
+# 创建一对名为 veth1 和 veth2 的 Veth 设备
+sudo ip link add veth1 type veth peer name veth2
+
+# 验证创建结果
+ip link show type veth
+</div>
+                
+                <h4>步骤 3：将 Veth 设备分配到网络命名空间</h4>
+                <div class="code-block">
+# 将 veth1 放入 ns1
+sudo ip link set veth1 netns ns1
+
+# 将 veth2 放入 ns2
+sudo ip link set veth2 netns ns2
+
+# 验证分配结果（在主机上应该看不到这些设备了）
+ip link show veth1 2>/dev/null || echo "veth1 不在主机命名空间中"
+ip link show veth2 2>/dev/null || echo "veth2 不在主机命名空间中"
+
+# 在各自的命名空间中查看设备
+sudo ip netns exec ns1 ip link show veth1
+sudo ip netns exec ns2 ip link show veth2
+</div>
+                
+                <h4>步骤 4：配置 Veth 设备</h4>
+                <div class="code-block">
+# 在 ns1 中配置 veth1
+sudo ip netns exec ns1 ip addr add 192.168.1.1/24 dev veth1
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns1 ip link set lo up
+
+# 在 ns2 中配置 veth2
+sudo ip netns exec ns2 ip addr add 192.168.1.2/24 dev veth2
+sudo ip netns exec ns2 ip link set veth2 up
+sudo ip netns exec ns2 ip link set lo up
+
+# 验证配置
+sudo ip netns exec ns1 ip addr show veth1
+sudo ip netns exec ns2 ip addr show veth2
+</div>
+                
+                <h4>步骤 5：测试连通性</h4>
+                <div class="code-block">
+# 从 ns1 ping ns2
+sudo ip netns exec ns1 ping -c 3 192.168.1.2
+
+# 从 ns2 ping ns1
+sudo ip netns exec ns2 ping -c 3 192.168.1.1
+</div>
+                
+                <h4>步骤 6：清理实验环境</h4>
+                <div class="code-block">
+# 删除网络命名空间（会自动删除其中的设备）
+sudo ip netns delete ns1
+sudo ip netns delete ns2
+
+# 验证清理结果
+ip netns list
+</div>
+                
+                <p>通过这个实验，我们成功地使用 Veth 对连接了两个完全隔离的网络命名空间，使它们能够相互通信。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Veth 对连接网络命名空间的工作流程</h2>
+            <p>让我们深入了解 Veth 对连接网络命名空间的工作流程：</p>
+            
+            <h3>数据包传输流程</h3>
+            <ol>
+                <li><strong>发送数据包</strong>：在 ns1 中，应用程序发送数据包到 192.168.1.2</li>
+                <li><strong>路由查找</strong>：ns1 的网络栈查找路由表，确定数据包应通过 veth1 发送</li>
+                <li><strong>Veth 转发</strong>：veth1 接收到数据包后，将其直接传递给对端设备 veth2</li>
+                <li><strong>接收处理</strong>：veth2 接收到数据包，将其传递给 ns2 的网络栈</li>
+                <li><strong>目标传递</strong>：ns2 的网络栈根据目标 IP 将数据包传递给相应的应用程序</li>
+            </ol>
+            
+            <p>整个过程在内核中完成，无需经过物理网络设备，因此性能非常高。</p>
+            
+            <h3>内核实现细节</h3>
+            <p>从 Linux 内核实现的角度，Veth 对连接网络命名空间的过程如下：</p>
+            <ul>
+                <li>当 Veth 设备被移动到不同的网络命名空间时，内核会更新设备的命名空间引用</li>
+                <li>Veth 设备的发送函数会直接调用对端设备的接收函数，无需经过实际的网络传输</li>
+                <li>数据包在内核内存中直接传递，不会被复制到用户空间</li>
+                <li>整个过程对应用程序透明，应用程序无需知道实际的网络拓扑</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>常见使用场景</h2>
+            <p>Veth 对与网络命名空间的结合有多种常见使用场景：</p>
+            
+            <div class="experiment-card">
+                <h3>场景 1：容器网络</h3>
+                <p>最常见的场景是为容器提供网络连接：</p>
+                <ul>
+                    <li>容器运行在自己的网络命名空间中</li>
+                    <li>Veth 对的一端放在容器的网络命名空间中</li>
+                    <li>另一端放在主机网络命名空间中，通常连接到网桥</li>
+                </ul>
+                <p>这是 Docker 默认网络模式和大多数 Kubernetes CNI 插件的基本原理。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>场景 2：网络功能虚拟化（NFV）</h3>
+                <p>在 NFV 场景中，Veth 对用于连接不同的网络功能组件：</p>
+                <ul>
+                    <li>每个网络功能（如防火墙、NAT、负载均衡器）运行在独立的网络命名空间中</li>
+                    <li>Veth 对连接这些网络功能，形成服务链</li>
+                    <li>数据包按照预定义的路径通过这些网络功能</li>
+                </ul>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>场景 3：网络测试和开发</h3>
+                <p>Veth 对是网络测试和开发的理想工具：</p>
+                <ul>
+                    <li>创建隔离的测试环境</li>
+                    <li>模拟复杂的网络拓扑</li>
+                    <li>测试网络协议和应用程序</li>
+                </ul>
+                <p>使用 Veth 对和网络命名空间，可以在单台机器上模拟复杂的网络环境。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>实用示例：连接网络命名空间到主机网络</h2>
+            <p>除了连接两个网络命名空间，更常见的场景是将网络命名空间连接到主机网络，使其能够访问外部网络。</p>
+            
+            <div class="experiment-card">
+                <h3>实验：使用 Veth 对和网桥连接网络命名空间到主机网络</h3>
+                <p>在这个实验中，我们将创建一个网络命名空间，并使用 Veth 对和 Linux 网桥将其连接到主机网络。</p>
+                
+                <h4>步骤 1：创建网络命名空间</h4>
+                <div class="code-block">
+# 创建网络命名空间
+sudo ip netns add ns1
+
+# 验证创建结果
+ip netns list
+</div>
+                
+                <h4>步骤 2：创建 Linux 网桥</h4>
+                <div class="code-block">
+# 创建网桥
+sudo ip link add br0 type bridge
+
+# 启用网桥
+sudo ip link set br0 up
+
+# 为网桥配置 IP 地址
+sudo ip addr add 192.168.2.1/24 dev br0
+
+# 验证网桥创建
+ip link show br0
+ip addr show br0
+</div>
+                
+                <h4>步骤 3：创建 Veth 对</h4>
+                <div class="code-block">
+# 创建 Veth 对
+sudo ip link add veth0 type veth peer name veth1
+
+# 验证创建结果
+ip link show type veth
+</div>
+                
+                <h4>步骤 4：配置 Veth 对</h4>
+                <div class="code-block">
+# 将 veth1 放入 ns1
+sudo ip link set veth1 netns ns1
+
+# 将 veth0 连接到网桥
+sudo ip link set veth0 master br0
+sudo ip link set veth0 up
+
+# 在 ns1 中配置 veth1
+sudo ip netns exec ns1 ip addr add 192.168.2.2/24 dev veth1
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns1 ip link set lo up
+
+# 配置默认路由
+sudo ip netns exec ns1 ip route add default via 192.168.2.1
+
+# 验证配置
+ip link show veth0
+sudo ip netns exec ns1 ip addr show veth1
+sudo ip netns exec ns1 ip route
+</div>
+                
+                <h4>步骤 5：启用 IP 转发并配置 NAT</h4>
+                <div class="code-block">
+# 启用 IP 转发
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# 配置 NAT（假设 eth0 是连接外部网络的接口）
+sudo iptables -t nat -A POSTROUTING -s 192.168.2.0/24 -o eth0 -j MASQUERADE
+
+# 允许转发的流量
+sudo iptables -A FORWARD -i br0 -o eth0 -j ACCEPT
+sudo iptables -A FORWARD -i eth0 -o br0 -j ACCEPT
+</div>
+                
+                <h4>步骤 6：测试连通性</h4>
+                <div class="code-block">
+# 从 ns1 ping 网桥
+sudo ip netns exec ns1 ping -c 3 192.168.2.1
+
+# 从 ns1 ping 外部网络（如 Google 的 DNS）
+sudo ip netns exec ns1 ping -c 3 8.8.8.8
+
+# 测试 DNS 解析
+sudo ip netns exec ns1 nslookup google.com
+</div>
+                
+                <h4>步骤 7：清理实验环境</h4>
+                <div class="code-block">
+# 删除 NAT 规则
+sudo iptables -t nat -D POSTROUTING -s 192.168.2.0/24 -o eth0 -j MASQUERADE
+sudo iptables -D FORWARD -i br0 -o eth0 -j ACCEPT
+sudo iptables -D FORWARD -i eth0 -o br0 -j ACCEPT
+
+# 删除网桥
+sudo ip link set br0 down
+sudo ip link delete br0
+
+# 删除网络命名空间
+sudo ip netns delete ns1
+
+# 验证清理结果
+ip netns list
+ip link show br0 2>/dev/null || echo "br0 已删除"
+</div>
+                
+                <p>通过这个实验，我们成功地将网络命名空间连接到主机网络，使其能够访问外部网络。这是容器网络实现的基本原理。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>常见问题和解决方案</h2>
+            <p>在使用 Veth 对连接网络命名空间时，可能会遇到一些常见问题：</p>
+            
+            <div class="experiment-card">
+                <h3>问题 1：无法 ping 通对端</h3>
+                <p><strong>可能原因：</strong></p>
+                <ul>
+                    <li>Veth 设备未启用（UP）</li>
+                    <li>IP 地址配置错误</li>
+                    <li>路由表配置问题</li>
+                    <li>防火墙规则阻止</li>
+                </ul>
+                <p><strong>解决方案：</strong></p>
+                <div class="code-block">
+# 检查设备状态
+sudo ip netns exec ns1 ip link show veth1
+sudo ip netns exec ns2 ip link show veth2
+
+# 确保设备已启用
+sudo ip netns exec ns1 ip link set veth1 up
+sudo ip netns exec ns2 ip link set veth2 up
+
+# 检查 IP 地址配置
+sudo ip netns exec ns1 ip addr show veth1
+sudo ip netns exec ns2 ip addr show veth2
+
+# 检查路由表
+sudo ip netns exec ns1 ip route
+sudo ip netns exec ns2 ip route
+
+# 临时禁用防火墙规则
+sudo ip netns exec ns1 iptables -F
+sudo ip netns exec ns2 iptables -F
+</div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>问题 2：无法访问外部网络</h3>
+                <p><strong>可能原因：</strong></p>
+                <ul>
+                    <li>IP 转发未启用</li>
+                    <li>NAT 配置错误</li>
+                    <li>默认路由未配置</li>
+                    <li>DNS 配置缺失</li>
+                </ul>
+                <p><strong>解决方案：</strong></p>
+                <div class="code-block">
+# 启用 IP 转发
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# 检查 NAT 配置
+sudo iptables -t nat -L POSTROUTING -n -v
+
+# 配置默认路由
+sudo ip netns exec ns1 ip route add default via 192.168.2.1
+
+# 配置 DNS
+sudo mkdir -p /etc/netns/ns1
+echo "nameserver 8.8.8.8" | sudo tee /etc/netns/ns1/resolv.conf
+</div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>问题 3：Veth 设备消失</h3>
+                <p><strong>可能原因：</strong></p>
+                <ul>
+                    <li>对端设备被删除</li>
+                    <li>网络命名空间被删除</li>
+                </ul>
+                <p><strong>解决方案：</strong></p>
+                <div class="code-block">
+# 检查网络命名空间是否存在
+ip netns list
+
+# 重新创建 Veth 对
+sudo ip link add veth1 type veth peer name veth2
+sudo ip link set veth1 netns ns1
+sudo ip link set veth2 netns ns2
+</div>
+            </div>
+        </section>
+
+        <section>
+            <h2>总结</h2>
+            <p>Veth 对是连接网络命名空间的关键技术，它提供了一种简单而高效的方式，使隔离的网络环境能够相互通信。本文介绍了 Veth 对与网络命名空间的基本概念、工作原理、常见使用场景以及实用示例。</p>
+            
+            <p>通过 Veth 对和网络命名空间，我们可以：</p>
+            <ul>
+                <li>创建隔离的网络环境</li>
+                <li>连接不同的网络命名空间</li>
+                <li>将网络命名空间连接到主机网络</li>
+                <li>为容器提供网络连接</li>
+                <li>模拟复杂的网络拓扑</li>
+            </ul>
+            
+            <p>这些技术是容器网络和 Kubernetes 网络的基础，理解它们对于深入掌握容器网络原理至关重要。</p>
+            
+            <div class="experiment-card">
+                <h3>进一步学习</h3>
+                <p>要深入了解 Veth 对与网络命名空间的高级应用，请参考以下页面：</p>
+                <ul>
+                    <li><a href="veth-namespaces-advanced.html">Veth 对与网络命名空间高级应用</a> - 探讨更复杂的网络拓扑和高级配置</li>
+                    <li><a href="veth-bridges.html">Veth 对与网桥</a> - 介绍 Veth 对与网桥的结合使用</li>
+                    <li><a href="veth-kubernetes.html">Veth 对在 Kubernetes 中的应用</a> - 分析 Veth 对在 Kubernetes 网络中的角色</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>相关资源</h2>
+            <a href="veth-namespaces-advanced.html" class="button">继续阅读：Veth 对与网络命名空间高级应用</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html>
