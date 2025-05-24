@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+    </marker>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect x="0" y="0" width="800" height="600" fill="#f8f9fa" />
+  
+  <!-- 标题 -->
+  <text x="400" y="40" font-family="Arial, sans-serif" font-size="24" text-anchor="middle" fill="#333">Kubernetes Service 高级特性</text>
+  
+  <!-- 集群边界 -->
+  <rect x="40" y="70" width="720" height="480" rx="10" ry="10" fill="none" stroke="#333" stroke-width="2" stroke-dasharray="10,5" />
+  
+  <!-- 核心区域 - Service 类型和实现 -->
+  <rect x="70" y="130" width="240" height="190" rx="5" ry="5" fill="#e6f5ff" stroke="#0066cc" stroke-width="2" />
+  <text x="190" y="150" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" font-weight="bold" fill="#0066cc">Service 核心机制</text>
+  
+  <!-- 核心组件列表 -->
+  <circle cx="90" cy="180" r="6" fill="#0066cc" />
+  <text x="105" y="185" font-family="Arial, sans-serif" font-size="14" fill="#333">kube-proxy 模式</text>
+  
+  <circle cx="90" cy="210" r="6" fill="#0066cc" />
+  <text x="105" y="215" font-family="Arial, sans-serif" font-size="14" fill="#333">Endpoints/EndpointSlices</text>
+  
+  <circle cx="90" cy="240" r="6" fill="#0066cc" />
+  <text x="105" y="245" font-family="Arial, sans-serif" font-size="14" fill="#333">DNS 集成</text>
+  
+  <circle cx="90" cy="270" r="6" fill="#0066cc" />
+  <text x="105" y="275" font-family="Arial, sans-serif" font-size="14" fill="#333">流量路由与负载均衡</text>
+  
+  <circle cx="90" cy="300" r="6" fill="#0066cc" />
+  <text x="105" y="305" font-family="Arial, sans-serif" font-size="14" fill="#333">会话亲和性</text>
+  
+  <!-- 高级优化区域 -->
+  <rect x="330" y="130" width="240" height="190" rx="5" ry="5" fill="#f0f7e6" stroke="#5cb85c" stroke-width="2" />
+  <text x="450" y="150" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" font-weight="bold" fill="#5cb85c">Service 高级优化</text>
+  
+  <!-- 高级优化列表 -->
+  <circle cx="350" cy="180" r="6" fill="#5cb85c" />
+  <text x="365" y="185" font-family="Arial, sans-serif" font-size="14" fill="#333">IPVS 调优</text>
+  
+  <circle cx="350" cy="210" r="6" fill="#5cb85c" />
+  <text x="365" y="215" font-family="Arial, sans-serif" font-size="14" fill="#333">连接跟踪调优</text>
+  
+  <circle cx="350" cy="240" r="6" fill="#5cb85c" />
+  <text x="365" y="245" font-family="Arial, sans-serif" font-size="14" fill="#333">内核参数优化</text>
+  
+  <circle cx="350" cy="270" r="6" fill="#5cb85c" />
+  <text x="365" y="275" font-family="Arial, sans-serif" font-size="14" fill="#333">拓扑感知路由</text>
+  
+  <circle cx="350" cy="300" r="6" fill="#5cb85c" />
+  <text x="365" y="305" font-family="Arial, sans-serif" font-size="14" fill="#333">负载均衡算法选择</text>
+  
+  <!-- 高级特性区域 -->
+  <rect x="70" y="340" width="240" height="190" rx="5" ry="5" fill="#ffe6ee" stroke="#d9534f" stroke-width="2" />
+  <text x="190" y="360" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" font-weight="bold" fill="#d9534f">高级特性</text>
+  
+  <!-- 高级特性列表 -->
+  <circle cx="90" cy="390" r="6" fill="#d9534f" />
+  <text x="105" y="395" font-family="Arial, sans-serif" font-size="14" fill="#333">ExternalTrafficPolicy</text>
+  
+  <circle cx="90" cy="420" r="6" fill="#d9534f" />
+  <text x="105" y="425" font-family="Arial, sans-serif" font-size="14" fill="#333">LoadBalancerClass</text>
+  
+  <circle cx="90" cy="450" r="6" fill="#d9534f" />
+  <text x="105" y="455" font-family="Arial, sans-serif" font-size="14" fill="#333">混合服务发现</text>
+  
+  <circle cx="90" cy="480" r="6" fill="#d9534f" />
+  <text x="105" y="485" font-family="Arial, sans-serif" font-size="14" fill="#333">IPv4/IPv6 双栈</text>
+  
+  <circle cx="90" cy="510" r="6" fill="#d9534f" />
+  <text x="105" y="515" font-family="Arial, sans-serif" font-size="14" fill="#333">无头服务高级用法</text>
+  
+  <!-- 多集群区域 -->
+  <rect x="330" y="340" width="240" height="190" rx="5" ry="5" fill="#fff4e6" stroke="#f0ad4e" stroke-width="2" />
+  <text x="450" y="360" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" font-weight="bold" fill="#f0ad4e">多集群服务网络</text>
+  
+  <!-- 多集群服务列表 -->
+  <circle cx="350" cy="390" r="6" fill="#f0ad4e" />
+  <text x="365" y="395" font-family="Arial, sans-serif" font-size="14" fill="#333">跨集群服务发现</text>
+  
+  <circle cx="350" cy="420" r="6" fill="#f0ad4e" />
+  <text x="365" y="425" font-family="Arial, sans-serif" font-size="14" fill="#333">多集群服务暴露</text>
+  
+  <circle cx="350" cy="450" r="6" fill="#f0ad4e" />
+  <text x="365" y="455" font-family="Arial, sans-serif" font-size="14" fill="#333">服务网格集成</text>
+  
+  <circle cx="350" cy="480" r="6" fill="#f0ad4e" />
+  <text x="365" y="485" font-family="Arial, sans-serif" font-size="14" fill="#333">全局负载均衡</text>
+  
+  <circle cx="350" cy="510" r="6" fill="#f0ad4e" />
+  <text x="365" y="515" font-family="Arial, sans-serif" font-size="14" fill="#333">多地域部署</text>
+  
+  <!-- 故障排除区域 -->
+  <rect x="590" y="230" width="160" height="160" rx="5" ry="5" fill="#e6e6ff" stroke="#6610f2" stroke-width="2" />
+  <text x="670" y="250" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" font-weight="bold" fill="#6610f2">故障排除</text>
+  
+  <!-- 故障排除列表 -->
+  <circle cx="610" cy="280" r="6" fill="#6610f2" />
+  <text x="625" y="285" font-family="Arial, sans-serif" font-size="14" fill="#333">网络包捕获</text>
+  
+  <circle cx="610" cy="310" r="6" fill="#6610f2" />
+  <text x="625" y="315" font-family="Arial, sans-serif" font-size="14" fill="#333">规则分析</text>
+  
+  <circle cx="610" cy="340" r="6" fill="#6610f2" />
+  <text x="625" y="345" font-family="Arial, sans-serif" font-size="14" fill="#333">性能诊断</text>
+  
+  <circle cx="610" cy="370" r="6" fill="#6610f2" />
+  <text x="625" y="375" font-family="Arial, sans-serif" font-size="14" fill="#333">专家级监控</text>
+  
+  <!-- 未来趋势云 -->
+  <ellipse cx="660" cy="460" rx="90" ry="50" fill="#e6f7ff" stroke="#17a2b8" stroke-width="2" />
+  <text x="660" y="440" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" font-weight="bold" fill="#17a2b8">未来趋势</text>
+  <text x="660" y="460" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">eBPF 服务代理</text>
+  <text x="660" y="480" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">无服务器化服务</text>
+  <text x="660" y="500" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">网格化服务网络</text>
+  
+  <!-- 连接线 -->
+  <line x1="310" y1="225" x2="330" y2="225" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)" />
+  <line x1="450" y1="320" x2="450" y2="340" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)" />
+  <line x1="190" y1="320" x2="190" y2="340" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)" />
+  <line x1="570" y1="225" x2="590" y2="260" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)" />
+  <line x1="570" y1="435" x2="590" y2="460" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)" />
+  
+  <!-- 图例 -->
+  <rect x="60" y="550" width="15" height="15" fill="#e6f5ff" stroke="#0066cc" stroke-width="1" />
+  <text x="80" y="562" font-family="Arial, sans-serif" font-size="12" fill="#333">核心机制</text>
+  
+  <rect x="180" y="550" width="15" height="15" fill="#f0f7e6" stroke="#5cb85c" stroke-width="1" />
+  <text x="200" y="562" font-family="Arial, sans-serif" font-size="12" fill="#333">高级优化</text>
+  
+  <rect x="300" y="550" width="15" height="15" fill="#ffe6ee" stroke="#d9534f" stroke-width="1" />
+  <text x="320" y="562" font-family="Arial, sans-serif" font-size="12" fill="#333">高级特性</text>
+  
+  <rect x="420" y="550" width="15" height="15" fill="#fff4e6" stroke="#f0ad4e" stroke-width="1" />
+  <text x="440" y="562" font-family="Arial, sans-serif" font-size="12" fill="#333">多集群服务</text>
+  
+  <rect x="540" y="550" width="15" height="15" fill="#e6e6ff" stroke="#6610f2" stroke-width="1" />
+  <text x="560" y="562" font-family="Arial, sans-serif" font-size="12" fill="#333">故障排除</text>
+  
+  <ellipse cx="650" y="550" rx="15" ry="8" fill="#e6f7ff" stroke="#17a2b8" stroke-width="1" />
+  <text x="675" y="562" font-family="Arial, sans-serif" font-size="12" fill="#333">未来趋势</text>
+  
+  <text x="400" y="585" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">Kubernetes Service 高级特性全景图</text>
+</svg> 
