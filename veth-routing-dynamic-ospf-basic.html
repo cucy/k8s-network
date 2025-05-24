@@ -221,9 +221,9 @@ sudo sed -i 's/ospfd=no/ospfd=yes/' /etc/frr/ns3/daemons
 </div>
             
             <h3>创建 FRR 配置文件</h3>
-            <div class="code-block">
+            <div class="code-block command">
 # 创建 ns1 的 frr.conf 文件
-cat << EOF | sudo tee /etc/frr/ns1/frr.conf
+cat &lt;&lt; 'EOF' | sudo tee /etc/frr/ns1/frr.conf
 frr version 7.5
 frr defaults traditional
 hostname ns1
@@ -241,7 +241,7 @@ line vty
 EOF
 
 # 创建 ns2 的 frr.conf 文件
-cat << EOF | sudo tee /etc/frr/ns2/frr.conf
+cat &lt;&lt; 'EOF' | sudo tee /etc/frr/ns2/frr.conf
 frr version 7.5
 frr defaults traditional
 hostname ns2
@@ -259,7 +259,7 @@ line vty
 EOF
 
 # 创建 ns3 的 frr.conf 文件
-cat << EOF | sudo tee /etc/frr/ns3/frr.conf
+cat &lt;&lt; 'EOF' | sudo tee /etc/frr/ns3/frr.conf
 frr version 7.5
 frr defaults traditional
 hostname ns3
@@ -275,7 +275,7 @@ router ospf
 line vty
 !
 EOF
-</div>
+            </div>
         </section>
 
         <section>
@@ -283,9 +283,9 @@ EOF
             <p>现在我们需要在每个网络命名空间中启动 FRRouting。</p>
             
             <h3>创建运行脚本</h3>
-            <div class="code-block">
+            <div class="code-block command">
 # 创建运行脚本
-cat << EOF | sudo tee /tmp/start_frr.sh
+cat &lt;&lt; 'EOF' | sudo tee /tmp/start_frr.sh
 #!/bin/bash
 
 # 停止主机上的 FRR
@@ -309,7 +309,7 @@ sudo chmod +x /tmp/start_frr.sh
 
 # 运行脚本
 sudo /tmp/start_frr.sh
-</div>
+            </div>
             
             <h3>验证 FRR 是否运行</h3>
             <div class="code-block">
@@ -492,25 +492,37 @@ sudo ip netns exec ns1 traceroute 192.168.2.1
             <h2>清理实验环境</h2>
             <p>实验完成后，我们需要清理环境。</p>
             
-            <h3>停止 FRRouting</h3>
-            <div class="code-block">
+            <h3>清理 FRRouting</h3>
+            <div class="code-block command">
 # 创建清理脚本
-cat << EOF | sudo tee /tmp/stop_frr.sh
+cat &lt;&lt; 'EOF' | sudo tee /tmp/stop_frr.sh
 #!/bin/bash
 
-# 杀死 FRR 进程
-sudo kill \$(ps aux | grep '[f]rr' | awk '{print \$2}')
+# 停止 ns1 中的 FRR
+sudo kill $(cat /tmp/ns1_ospfd.pid) $(cat /tmp/ns1_zebra.pid)
 
-# 启动主机上的 FRR
+# 停止 ns2 中的 FRR
+sudo kill $(cat /tmp/ns2_ospfd.pid) $(cat /tmp/ns2_zebra.pid)
+
+# 停止 ns3 中的 FRR
+sudo kill $(cat /tmp/ns3_ospfd.pid) $(cat /tmp/ns3_zebra.pid)
+
+# 删除 PID 文件
+sudo rm -f /tmp/ns*_*.pid
+
+# 删除 socket 文件
+sudo rm -f /tmp/ns*_*.sock
+
+# 重启主机上的 FRR
 sudo systemctl start frr
 EOF
 
 # 设置执行权限
 sudo chmod +x /tmp/stop_frr.sh
 
-# 运行脚本
-sudo /tmp/stop_frr.sh
-</div>
+# 可选：如果需要，运行清理脚本
+# sudo /tmp/stop_frr.sh
+            </div>
             
             <h3>删除网络命名空间</h3>
             <div class="code-block">
@@ -521,7 +533,7 @@ sudo ip netns delete ns3
 
 # 验证删除结果
 ip netns list
-</div>
+            </div>
             
             <h3>删除配置文件</h3>
             <div class="code-block">
@@ -532,7 +544,7 @@ sudo rm -rf /etc/frr/ns3
 sudo rm -f /tmp/ns*
 sudo rm -f /tmp/start_frr.sh
 sudo rm -f /tmp/stop_frr.sh
-</div>
+            </div>
         </section>
 
         <section>

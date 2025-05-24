@@ -374,17 +374,17 @@ kubectl exec -it $(kubectl get pods -l app=app2 -o jsonpath='{.items[0].metadata
                     <span class="step-number">4</span>
                     <p>创建 Ingress 资源：</p>
                     <div class="code-block">
-# 创建 ingress.yaml 文件
-cat > ingress.yaml << EOF
+# 创建一个简单的 Ingress 资源
+cat > ingress.yaml << 'EOF'
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: example-ingress
+  name: demo-ingress
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: example.com
+  - host: demo.example.com  # 根据实际情况修改
     http:
       paths:
       - path: /app1
@@ -403,7 +403,7 @@ spec:
               number: 80
 EOF
 
-# 应用 Ingress 配置
+# 应用配置
 kubectl apply -f ingress.yaml
                     </div>
                 </div>
@@ -445,7 +445,7 @@ curl -H "Host: example.com" http://<minikube-ip>/app2
                     <span class="step-number">1</span>
                     <p>生成自签名证书：</p>
                     <div class="code-block">
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=example.com"
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=demo.example.com"
                     </div>
                 </div>
                 
@@ -453,7 +453,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt
                     <span class="step-number">2</span>
                     <p>创建 TLS Secret：</p>
                     <div class="code-block">
-kubectl create secret tls example-tls --key tls.key --cert tls.crt
+kubectl create secret tls demo-tls --key tls.key --cert tls.crt
                     </div>
                 </div>
                 
@@ -461,21 +461,19 @@ kubectl create secret tls example-tls --key tls.key --cert tls.crt
                     <span class="step-number">3</span>
                     <p>更新 Ingress 配置，添加 TLS：</p>
                     <div class="code-block">
-# 创建 ingress-tls.yaml 文件
-cat > ingress-tls.yaml << EOF
+# 创建带 TLS 的 Ingress
+cat > ingress-tls.yaml << 'EOF'
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: example-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+  name: demo-ingress-tls
 spec:
   tls:
   - hosts:
-      - example.com
-    secretName: example-tls
+    - demo.example.com
+    secretName: demo-tls
   rules:
-  - host: example.com
+  - host: demo.example.com
     http:
       paths:
       - path: /app1
@@ -494,7 +492,7 @@ spec:
               number: 80
 EOF
 
-# 应用更新后的 Ingress 配置
+# 应用配置
 kubectl apply -f ingress-tls.yaml
                     </div>
                 </div>
@@ -663,21 +661,38 @@ kubectl exec -it client-b -n policy-test -- wget -O- <web-pod-ip>
                     <p>创建网络策略，只允许客户端 A 访问服务器：</p>
                     <div class="code-block">
 # 创建 network-policy.yaml 文件
-cat > network-policy.yaml << EOF
+cat > network-policy.yaml << 'EOF'
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: web-allow-client-a
-  namespace: policy-test
+  name: frontend-policy
+  namespace: default
 spec:
   podSelector:
     matchLabels:
-      app: web
+      app: frontend
+  policyTypes:
+  - Ingress
+  - Egress
   ingress:
   - from:
+    - namespaceSelector:
+        matchLabels:
+          purpose: production
     - podSelector:
         matchLabels:
-          app: client-a
+          role: api
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: db
+    ports:
+    - protocol: TCP
+      port: 5432
 EOF
 
 # 应用网络策略

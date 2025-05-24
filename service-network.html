@@ -27,12 +27,23 @@
     <main class="container">
         <section class="intro">
             <h2>Service 网络原理</h2>
-            <p>Service是Kubernetes中的核心概念，它提供了一种抽象，使得一组Pod可以作为一个服务被访问。Service解决了Pod IP不稳定和负载均衡的问题。</p>
+            <p>Service是Kubernetes中的关键抽象概念，它解决了微服务架构中服务发现和负载均衡的核心问题。通过Service，Kubernetes提供了一种机制，使得一组动态变化的Pod可以作为统一的服务被访问，无论这些Pod如何扩缩容、重新调度或故障重启。</p>
             
             <div class="diagram-container">
                 <object type="image/svg+xml" data="svg/service-network.svg" class="diagram">
                     Service 网络示意图
                 </object>
+            </div>
+
+            <div class="key-points">
+                <h3>Service 的核心功能</h3>
+                <ul>
+                    <li><strong>服务发现</strong>：提供稳定的DNS名称和IP地址，使其他服务能够可靠地发现和连接</li>
+                    <li><strong>负载均衡</strong>：自动在多个Pod实例之间分发流量，确保系统的高可用性和性能</li>
+                    <li><strong>服务抽象</strong>：隐藏后端实现细节，使应用程序能够解耦并独立演化</li>
+                    <li><strong>环境一致性</strong>：在开发、测试和生产环境中提供统一的访问模式</li>
+                    <li><strong>外部集成</strong>：通过不同类型的Service，提供从集群内到集群外的多种访问方式</li>
+                </ul>
             </div>
         </section>
 
@@ -70,6 +81,121 @@
                             <li><strong>ExternalName</strong>：将Service映射到一个DNS名称，通过CNAME记录实现</li>
                             <li><strong>Headless Service</strong>：不分配ClusterIP，直接返回所有Pod的IP地址</li>
                         </ul>
+                        
+                        <h4>Service 类型比较</h4>
+                        <div class="comparison-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>特性/功能</th>
+                                        <th>ClusterIP</th>
+                                        <th>NodePort</th>
+                                        <th>LoadBalancer</th>
+                                        <th>ExternalName</th>
+                                        <th>Headless (None)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>集群内部访问</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✓ (DNS)</td>
+                                        <td>✓ (直接Pod IP)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>外部访问</td>
+                                        <td>✗</td>
+                                        <td>✓ (节点IP:端口)</td>
+                                        <td>✓ (LB IP)</td>
+                                        <td>✗</td>
+                                        <td>✗</td>
+                                    </tr>
+                                    <tr>
+                                        <td>虚拟IP (ClusterIP)</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✗</td>
+                                        <td>✗</td>
+                                    </tr>
+                                    <tr>
+                                        <td>负载均衡</td>
+                                        <td>✓ (kube-proxy)</td>
+                                        <td>✓ (kube-proxy)</td>
+                                        <td>✓ (云LB+kube-proxy)</td>
+                                        <td>✗</td>
+                                        <td>✗ (客户端负责)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>端口映射</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✗</td>
+                                        <td>✓</td>
+                                    </tr>
+                                    <tr>
+                                        <td>会话亲和性</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✓</td>
+                                        <td>✗</td>
+                                        <td>✗</td>
+                                    </tr>
+                                    <tr>
+                                        <td>需要 selector</td>
+                                        <td>通常需要</td>
+                                        <td>通常需要</td>
+                                        <td>通常需要</td>
+                                        <td>✗</td>
+                                        <td>可选</td>
+                                    </tr>
+                                    <tr>
+                                        <td>DNS 记录类型</td>
+                                        <td>A 记录</td>
+                                        <td>A 记录</td>
+                                        <td>A 记录</td>
+                                        <td>CNAME 记录</td>
+                                        <td>多个 A 记录</td>
+                                    </tr>
+                                    <tr>
+                                        <td>主要用途</td>
+                                        <td>集群内部服务</td>
+                                        <td>开发测试环境</td>
+                                        <td>生产环境外部服务</td>
+                                        <td>外部服务集成</td>
+                                        <td>有状态应用、服务发现</td>
+                                    </tr>
+                                    <tr>
+                                        <td>实现机制</td>
+                                        <td>iptables/IPVS</td>
+                                        <td>iptables/IPVS + 端口</td>
+                                        <td>云提供商API + NodePort</td>
+                                        <td>DNS</td>
+                                        <td>DNS (无代理)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>资源消耗</td>
+                                        <td>低</td>
+                                        <td>中</td>
+                                        <td>高 (额外费用)</td>
+                                        <td>极低</td>
+                                        <td>极低</td>
+                                    </tr>
+                                    <tr>
+                                        <td>限制</td>
+                                        <td>仅集群内访问</td>
+                                        <td>端口范围限制<br>(30000-32767)</td>
+                                        <td>需要云平台支持</td>
+                                        <td>仅DNS重定向<br>无端口映射</td>
+                                        <td>无负载均衡<br>客户端复杂度高</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        
                         <div class="code-block">
 # ClusterIP Service 示例
 apiVersion: v1
@@ -83,6 +209,59 @@ spec:
   - port: 80
     targetPort: 9376
   type: ClusterIP
+
+# NodePort Service 示例
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-nodeport-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80              # 集群内部访问的端口
+    targetPort: 9376      # 容器端口
+    nodePort: 30007       # 节点端口，不指定会自动分配
+  type: NodePort
+
+# LoadBalancer Service 示例
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-loadbalancer-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80
+    targetPort: 9376
+  type: LoadBalancer
+
+# ExternalName Service 示例
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-external-service
+spec:
+  type: ExternalName
+  externalName: api.example.com
+
+# Headless Service 示例
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-headless-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80
+    targetPort: 9376
+  clusterIP: None  # 这使其成为Headless Service
                         </div>
                     </div>
                     
@@ -209,114 +388,256 @@ sudo ipvsadm -ln
         <section>
             <h2>Service 网络实现细节</h2>
             
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/service-implementation.svg" class="diagram">
+                    Service 实现机制示意图
+                </object>
+            </div>
+            
             <div class="interactive">
-                <h3>ClusterIP 实现</h3>
-                <p>ClusterIP是一个虚拟IP，不绑定到任何网络接口，只存在于iptables或IPVS规则中。当流量发送到ClusterIP时，会被重定向到后端Pod。</p>
+                <h3>Service 类型详解</h3>
+                <p>Kubernetes 提供了多种 Service 类型，每种类型都有不同的使用场景和实现方式。点击下面的链接深入了解各种 Service 类型：</p>
                 
-                <h4>ClusterIP地址分配：</h4>
-                <p>ClusterIP从Service CIDR（通常是10.96.0.0/12或10.0.0.0/16）中分配，这个CIDR与Pod CIDR不同，专门用于Service。</p>
-                
-                <h4>Service端口映射：</h4>
-                <p>Service可以将一个端口映射到Pod的不同端口，例如：</p>
-                <div class="code-block">
-spec:
-  ports:
-  - name: http
-    port: 80        # Service端口
-    targetPort: 8080 # Pod端口
+                <div class="card-container">
+                    <div class="card">
+                        <h4><a href="service-clusterip.html">ClusterIP Service</a></h4>
+                        <p>默认 Service 类型，仅集群内部可访问，为一组 Pod 提供稳定的内部访问点。</p>
+                        <a href="service-clusterip.html" class="button">详细了解</a>
+                    </div>
+                    
+                    <div class="card">
+                        <h4><a href="service-nodeport.html">NodePort Service</a></h4>
+                        <p>在所有节点上开放指定端口，允许从集群外部访问内部服务。</p>
+                        <a href="service-nodeport.html" class="button">详细了解</a>
+                    </div>
+                    
+                    <div class="card">
+                        <h4><a href="service-loadbalancer.html">LoadBalancer Service</a></h4>
+                        <p>使用外部负载均衡器，为服务提供单一入口点，适用于生产环境。</p>
+                        <a href="service-loadbalancer.html" class="button">详细了解</a>
+                    </div>
+                    
+                    <div class="card">
+                        <h4><a href="service-externalname.html">ExternalName Service</a></h4>
+                        <p>将服务映射到外部 DNS 名称，用于访问集群外部的服务。</p>
+                        <a href="service-externalname.html" class="button">详细了解</a>
+                    </div>
+                    
+                    <div class="card">
+                        <h4><a href="service-advanced-topics.html">Service 高级主题</a></h4>
+                        <p>深入探讨 Service 的高级特性、内部机制和专家级优化技术，适合进阶用户。</p>
+                        <a href="service-advanced-topics.html" class="button">深入探索</a>
+                    </div>
                 </div>
                 
-                <h3>NodePort 实现</h3>
-                <p>NodePort在ClusterIP的基础上，在每个节点上开放一个端口（默认范围：30000-32767），将该端口的流量转发到对应的Service。</p>
+                <h3>ClusterIP 实现</h3>
+                <p>ClusterIP 是一个虚拟 IP，不绑定到任何网络接口，只存在于 iptables 或 IPVS 规则中。当流量发送到 ClusterIP 时，会被重定向到后端 Pod。</p>
                 
-                <h4>工作流程：</h4>
+                <h3>LoadBalancer 实现</h3>
+                <p>LoadBalancer 类型的 Service 在 NodePort 的基础上，通过云提供商的 API 自动创建外部负载均衡器，并将其配置为将流量转发到服务的 NodePort。</p>
+                
+                <div class="diagram-container">
+                    <object type="image/svg+xml" data="svg/loadbalancer-service.svg" class="diagram">
+                        LoadBalancer Service 示意图
+                    </object>
+                </div>
+                
+                <p>LoadBalancer Service 的工作流程：</p>
                 <ol>
-                    <li>在每个节点上，kube-proxy监听指定的NodePort</li>
-                    <li>当流量到达节点的NodePort时，通过iptables或IPVS规则将流量重定向到Service的ClusterIP</li>
-                    <li>然后按照ClusterIP的规则，将流量转发到后端Pod</li>
+                    <li>创建 ClusterIP Service 和对应的 Endpoints</li>
+                    <li>在所有节点上开放 NodePort</li>
+                    <li>通过云控制器管理器（Cloud Controller Manager）调用云提供商 API</li>
+                    <li>云提供商创建负载均衡器，并配置健康检查和后端服务</li>
+                    <li>负载均衡器将流量分发到各节点的 NodePort</li>
+                    <li>节点通过 iptables/IPVS 规则将流量转发到 Pod</li>
                 </ol>
+                
+                <p>LoadBalancer Service 支持多种高级配置：</p>
+                <ul>
+                    <li><strong>注解（Annotations）</strong>：通过特定的云提供商注解控制负载均衡器行为</li>
+                    <li><strong>会话亲和性</strong>：保持客户端请求路由到同一个后端</li>
+                    <li><strong>健康检查</strong>：定制负载均衡器的健康检查参数</li>
+                    <li><strong>SSL 终止</strong>：在负载均衡器层配置 TLS/SSL</li>
+                </ul>
+                
+                <div class="note-card">
+                    <p><strong>注意</strong>：LoadBalancer Service 在不同云提供商中的实现细节可能不同。请参考具体云提供商的文档了解特定功能和限制。</p>
+                </div>
             </div>
         </section>
 
         <section>
-            <h2>Service 网络排障</h2>
-            <p>在排查Service网络问题时，可以使用以下命令和工具：</p>
+            <h2>Service 性能测试与优化</h2>
             
-            <div class="experiment-card">
-                <h3>常用Service排障命令</h3>
+            <p>随着集群规模的增长，Service 性能成为关键考量因素。本节提供 Service 性能测试和优化的相关资源。</p>
+            
+            <div class="card-container">
+                <div class="card">
+                    <h3>性能测试实验</h3>
+                    <p>通过实际实验对比不同类型 Service 和不同 kube-proxy 模式下的性能表现。</p>
+                    <ul>
+                        <li><a href="service-loadbalancer.html#性能测试实验">LoadBalancer Service 性能测试</a></li>
+                        <li><a href="service-externalname.html#解析性能测试">ExternalName 解析性能测试</a></li>
+                    </ul>
+                </div>
+                
+                <div class="card">
+                    <h3>优化建议</h3>
+                    <p>基于测试结果的实用优化建议：</p>
+                    <ul>
+                        <li>对于高流量服务，建议使用 IPVS 模式，尤其在服务数超过 1000 时</li>
+                        <li>使用 EndpointSlices 减轻大型服务的更新负担</li>
+                        <li>部署 NodeLocal DNSCache 降低 DNS 延迟</li>
+                        <li>合理配置 conntrack 参数以避免表溢出</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <h3>Service 类型性能对比</h3>
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>性能特性</th>
+                            <th>ClusterIP</th>
+                            <th>NodePort</th>
+                            <th>LoadBalancer</th>
+                            <th>ExternalName</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>连接建立延迟</td>
+                            <td>最低</td>
+                            <td>低</td>
+                            <td>中等</td>
+                            <td>较高 (DNS解析)</td>
+                        </tr>
+                        <tr>
+                            <td>最大 QPS</td>
+                            <td>最高</td>
+                            <td>高</td>
+                            <td>受外部LB限制</td>
+                            <td>受DNS限制</td>
+                        </tr>
+                        <tr>
+                            <td>CPU 开销</td>
+                            <td>低</td>
+                            <td>中</td>
+                            <td>中</td>
+                            <td>DNS开销</td>
+                        </tr>
+                        <tr>
+                            <td>扩展性</td>
+                            <td>线性 (iptables)<br>常量 (IPVS)</td>
+                            <td>线性 (iptables)<br>常量 (IPVS)</td>
+                            <td>取决于外部LB</td>
+                            <td>良好</td>
+                        </tr>
+                        <tr>
+                            <td>大规模集群性能</td>
+                            <td>IPVS模式优异</td>
+                            <td>IPVS模式优异</td>
+                            <td>取决于LB类型</td>
+                            <td>DNS缓存影响大</td>
+                        </tr>
+                        <tr>
+                            <td>适用场景</td>
+                            <td>内部高性能服务</td>
+                            <td>中等流量外部访问</td>
+                            <td>生产级外部访问</td>
+                            <td>外部服务集成</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="note-card">
+                <p><strong>注意：</strong> 性能数据基于 IPVS 和 iptables 模式对比测试。在大型集群中，IPVS 模式可提供 10-40% 的性能提升，并显著降低规则更新延迟。详细数据可参考实验部分。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Service 排障指南</h2>
+            <p>在排查Service相关问题时，可以按照以下步骤进行：</p>
+            
+            <div class="troubleshooting-card">
+                <h3>1. 检查Service基本信息</h3>
                 <div class="code-block">
 # 查看Service详情
-kubectl get service my-service -o yaml
+kubectl describe service <service-name>
 
-# 查看Service的Endpoints
-kubectl get endpoints my-service
+# 检查Service是否有Endpoints
+kubectl get endpoints <service-name>
 
-# 检查Service是否有选择到Pod
-kubectl get pods --selector=app=MyApp
+# 查看EndpointSlices（Kubernetes 1.17+）
+kubectl get endpointslices -l kubernetes.io/service-name=<service-name>
+                </div>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>2. 验证Pod选择器</h3>
+                <div class="code-block">
+# 检查Service的选择器是否匹配到Pod
+kubectl get pods --selector=<service-selector> -o wide
 
-# 测试Service连通性
-kubectl run -it --rm --restart=Never busybox --image=busybox -- wget -O- my-service:80
+# 示例：检查标签为app=myapp的Pod
+kubectl get pods --selector=app=myapp -o wide
+                </div>
+                <p>常见问题：</p>
+                <ul>
+                    <li>选择器与Pod标签不匹配</li>
+                    <li>Pod未处于Ready状态</li>
+                    <li>Pod没有正确的标签</li>
+                </ul>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>3. 测试Pod连通性</h3>
+                <div class="code-block">
+# 创建测试Pod
+kubectl run -i --tty --rm debug --image=nicolaka/netshoot --restart=Never -- sh
 
+# 在测试Pod中执行
+curl <service-name>:<port>
+curl <cluster-ip>:<port>
+nslookup <service-name>.<namespace>.svc.cluster.local
+                </div>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>4. 检查kube-proxy</h3>
+                <div class="code-block">
 # 查看kube-proxy日志
 kubectl logs -n kube-system -l k8s-app=kube-proxy
 
-# 查看iptables规则
-sudo iptables-save | grep my-service
+# 检查kube-proxy配置
+kubectl get configmap -n kube-system kube-proxy -o yaml
 
-# 查看IPVS规则
-sudo ipvsadm -ln
+# 检查iptables规则（在节点上执行）
+iptables-save | grep <service-name>
+
+# 检查IPVS规则（在节点上执行）
+ipvsadm -ln
                 </div>
             </div>
-        </section>
+            
+            <div class="troubleshooting-card">
+                <h3>5. 外部访问问题</h3>
+                <div class="code-block">
+# 对于NodePort，检查节点防火墙是否允许该端口
+sudo iptables -L -n | grep <node-port>
 
-        <section>
-            <h2>Service 高级功能</h2>
-            <p>Kubernetes Service还提供了一些高级功能：</p>
-            
-            <h3>1. 会话亲和性</h3>
-            <p>可以配置Service将来自同一客户端的请求始终发送到同一个Pod：</p>
-            <div class="code-block">
-spec:
-  sessionAffinity: ClientIP
-  sessionAffinityConfig:
-    clientIP:
-      timeoutSeconds: 10800
+# 对于LoadBalancer，检查云提供商的负载均衡器状态
+kubectl describe service <service-name> | grep "LoadBalancer Ingress"
+                </div>
+                <p>常见问题：</p>
+                <ul>
+                    <li>节点防火墙或安全组阻止了NodePort</li>
+                    <li>externalTrafficPolicy设置不正确</li>
+                    <li>云提供商负载均衡器配置问题</li>
+                </ul>
             </div>
-            
-            <h3>2. 多端口Service</h3>
-            <p>一个Service可以暴露多个端口：</p>
-            <div class="code-block">
-spec:
-  ports:
-  - name: http
-    port: 80
-    targetPort: 8080
-  - name: https
-    port: 443
-    targetPort: 8443
-            </div>
-            
-            <h3>3. 外部服务</h3>
-            <p>Service可以指向集群外部的服务：</p>
-            <div class="code-block">
-kind: Service
-apiVersion: v1
-metadata:
-  name: external-service
-spec:
-  type: ExternalName
-  externalName: api.example.com
-            </div>
-            
-            <h3>4. 无头服务（Headless Service）</h3>
-            <p>当不需要负载均衡和单一Service IP时，可以创建"无头"Service：</p>
-            <div class="code-block">
-spec:
-  clusterIP: None
-  selector:
-    app: MyApp
-            </div>
-            <p>DNS查询将直接返回所有Pod的IP地址，而不是Service的ClusterIP。</p>
         </section>
 
         <section>

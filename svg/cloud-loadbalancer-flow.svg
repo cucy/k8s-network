@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+    </marker>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect x="0" y="0" width="800" height="500" fill="#f8f9fa" />
+  
+  <!-- 标题 -->
+  <text x="400" y="40" font-family="Arial, sans-serif" font-size="24" text-anchor="middle" fill="#333">云负载均衡器创建流程</text>
+  
+  <!-- Kubernetes 组件和云环境分界 -->
+  <rect x="50" y="70" width="340" height="380" rx="10" ry="10" fill="none" stroke="#333" stroke-width="2" stroke-dasharray="10,5" />
+  <text x="220" y="90" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">Kubernetes 集群</text>
+  
+  <rect x="410" y="70" width="340" height="380" rx="10" ry="10" fill="none" stroke="#333" stroke-width="2" stroke-dasharray="5,3" />
+  <text x="580" y="90" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#333">云提供商环境</text>
+  
+  <!-- 用户 -->
+  <rect x="100" y="120" width="100" height="40" rx="5" ry="5" fill="#fdae6b" stroke="#333" stroke-width="2" />
+  <text x="150" y="145" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">用户/管理员</text>
+  
+  <!-- API Server -->
+  <rect x="240" y="120" width="100" height="40" rx="5" ry="5" fill="#6baed6" stroke="#333" stroke-width="2" />
+  <text x="290" y="145" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#fff">API Server</text>
+  
+  <!-- ETCD -->
+  <rect x="240" y="190" width="100" height="40" rx="5" ry="5" fill="#6baed6" stroke="#333" stroke-width="2" />
+  <text x="290" y="215" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#fff">etcd</text>
+  
+  <!-- 云控制器管理器 -->
+  <rect x="240" y="260" width="100" height="40" rx="5" ry="5" fill="#6baed6" stroke="#333" stroke-width="2" />
+  <text x="290" y="285" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#fff">云控制器</text>
+  
+  <!-- Service 对象 -->
+  <rect x="100" y="190" width="100" height="40" rx="5" ry="5" fill="#fc8d59" stroke="#333" stroke-width="2" />
+  <text x="150" y="215" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#fff">Service 对象</text>
+  
+  <!-- 云 API 客户端 -->
+  <rect x="460" y="190" width="100" height="40" rx="5" ry="5" fill="#bcbddc" stroke="#333" stroke-width="2" />
+  <text x="510" y="215" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">云 API 客户端</text>
+  
+  <!-- 负载均衡器服务 -->
+  <rect x="600" y="190" width="100" height="40" rx="5" ry="5" fill="#bcbddc" stroke="#333" stroke-width="2" />
+  <text x="650" y="215" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">负载均衡器服务</text>
+  
+  <!-- 负载均衡器实例 -->
+  <rect x="600" y="260" width="100" height="40" rx="5" ry="5" fill="#bcbddc" stroke="#333" stroke-width="2" />
+  <text x="650" y="285" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">负载均衡器实例</text>
+  
+  <!-- 后端服务组/节点池 -->
+  <rect x="600" y="330" width="100" height="40" rx="5" ry="5" fill="#bcbddc" stroke="#333" stroke-width="2" />
+  <text x="650" y="350" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">后端服务组</text>
+  <text x="650" y="365" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#333">节点池</text>
+  
+  <!-- Kubernetes 节点 -->
+  <rect x="100" y="330" width="240" height="40" rx="5" ry="5" fill="#f5f5f5" stroke="#333" stroke-width="2" />
+  <text x="220" y="355" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#333">Kubernetes 节点 (NodePort 已开放)</text>
+  
+  <!-- 更新的 Service 状态 -->
+  <rect x="100" y="260" width="100" height="40" rx="5" ry="5" fill="#fc8d59" stroke="#333" stroke-width="2" />
+  <text x="150" y="280" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#fff">Service 对象</text>
+  <text x="150" y="295" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#fff">status.loadBalancer</text>
+  
+  <!-- 流程箭头 -->
+  <!-- 1. 用户创建 Service -->
+  <line x1="150" y1="160" x2="150" y2="190" stroke="#e41a1c" stroke-width="2" marker-end="url(#arrowhead)" />
+  <text x="160" y="180" font-family="Arial, sans-serif" font-size="10" fill="#e41a1c">1. 创建 LoadBalancer Service</text>
+  
+  <!-- 2. 提交到 API Server -->
+  <line x1="200" y1="210" x2="240" y2="140" stroke="#e41a1c" stroke-width="2" marker-end="url(#arrowhead)" />
+  
+  <!-- 3. 存储到 etcd -->
+  <line x1="290" y1="160" x2="290" y2="190" stroke="#377eb8" stroke-width="2" marker-end="url(#arrowhead)" />
+  <text x="300" y="180" font-family="Arial, sans-serif" font-size="10" fill="#377eb8">2. 存储数据</text>
+  
+  <!-- 4. 云控制器监听 -->
+  <path d="M 290 230 L 290 260" stroke="#4daf4a" stroke-width="2" marker-end="url(#arrowhead)" fill="none" />
+  <text x="300" y="250" font-family="Arial, sans-serif" font-size="10" fill="#4daf4a">3. 监听变化</text>
+  
+  <!-- 5. 调用云 API -->
+  <path d="M 340 280 L 460 210" stroke="#984ea3" stroke-width="2" marker-end="url(#arrowhead)" fill="none" />
+  <text x="380" y="230" font-family="Arial, sans-serif" font-size="10" fill="#984ea3">4. 调用云 API</text>
+  
+  <!-- 6. 云 API 创建负载均衡器 -->
+  <path d="M 560 210 L 600 210" stroke="#984ea3" stroke-width="2" marker-end="url(#arrowhead)" fill="none" />
+  <text x="580" y="200" font-family="Arial, sans-serif" font-size="10" fill="#984ea3">5. 请求创建</text>
+  
+  <!-- 7. 创建负载均衡器实例 -->
+  <path d="M 650 230 L 650 260" stroke="#ff7f00" stroke-width="2" marker-end="url(#arrowhead)" fill="none" />
+  <text x="660" y="250" font-family="Arial, sans-serif" font-size="10" fill="#ff7f00">6. 创建实例</text>
+  
+  <!-- 8. 配置后端服务组 -->
+  <path d="M 650 300 L 650 330" stroke="#ff7f00" stroke-width="2" marker-end="url(#arrowhead)" fill="none" />
+  <text x="660" y="320" font-family="Arial, sans-serif" font-size="10" fill="#ff7f00">7. 配置后端</text>
+  
+  <!-- 9. 节点注册到后端服务组 -->
+  <path d="M 340 350 L 600 350" stroke="#a65628" stroke-width="2" marker-end="url(#arrowhead)" fill="none" />
+  <text x="470" y="340" font-family="Arial, sans-serif" font-size="10" fill="#a65628">8. 节点注册为后端</text>
+  
+  <!-- 10. 更新 Service 状态 -->
+  <path d="M 240 280 L 200 280" stroke="#f781bf" stroke-width="2" marker-end="url(#arrowhead)" fill="none" />
+  <text x="180" y="270" font-family="Arial, sans-serif" font-size="10" fill="#f781bf">9. 更新状态</text>
+  
+  <!-- 图例 -->
+  <rect x="100" y="440" width="15" height="15" fill="#6baed6" stroke="#333" stroke-width="1" />
+  <text x="125" y="453" font-family="Arial, sans-serif" font-size="12" fill="#333">Kubernetes 控制平面</text>
+  
+  <rect x="275" y="440" width="15" height="15" fill="#fc8d59" stroke="#333" stroke-width="1" />
+  <text x="300" y="453" font-family="Arial, sans-serif" font-size="12" fill="#333">Service 资源</text>
+  
+  <rect x="390" y="440" width="15" height="15" fill="#bcbddc" stroke="#333" stroke-width="1" />
+  <text x="415" y="453" font-family="Arial, sans-serif" font-size="12" fill="#333">云服务组件</text>
+  
+  <rect x="500" y="440" width="15" height="15" fill="#f5f5f5" stroke="#333" stroke-width="1" />
+  <text x="525" y="453" font-family="Arial, sans-serif" font-size="12" fill="#333">节点</text>
+  
+  <rect x="580" y="440" width="15" height="15" fill="#fdae6b" stroke="#333" stroke-width="1" />
+  <text x="605" y="453" font-family="Arial, sans-serif" font-size="12" fill="#333">用户/客户端</text>
+</svg> 

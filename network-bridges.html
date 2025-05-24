@@ -410,10 +410,10 @@ ip link set <网桥名> mtu <MTU值>
                     <p>如果物理网卡支持，可以启用硬件卸载功能，减轻CPU负担</p>
                     <div class="code-block">
 # 检查网卡卸载功能
-ethtool -k <物理网卡>
+ethtool -k &lt;物理网卡&gt;
 
 # 启用特定卸载功能
-ethtool -K <物理网卡> tx-checksum-ip-generic on
+ethtool -K &lt;物理网卡&gt; tx-checksum-ip-generic on
                     </div>
                 </div>
                 
@@ -422,10 +422,10 @@ ethtool -K <物理网卡> tx-checksum-ip-generic on
                     <p>某些网桥参数可以根据工作负载特性进行调整</p>
                     <div class="code-block">
 # 查看网桥转发延迟
-cat /sys/class/net/<网桥名>/bridge/forward_delay
+cat /sys/class/net/&lt;网桥名&gt;/bridge/forward_delay
 
 # 设置网桥转发延迟（毫秒）
-echo 100 > /sys/class/net/<网桥名>/bridge/forward_delay
+echo 100 > /sys/class/net/&lt;网桥名&gt;/bridge/forward_delay
                     </div>
                 </div>
                 

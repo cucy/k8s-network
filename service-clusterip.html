@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClusterIP Service | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>ClusterIP Service 详解</h2>
+            <p>ClusterIP 是 Kubernetes 中最基本的 Service 类型，它为一组 Pod 提供单一、稳定的内部网络入口点。本文将深入探讨 ClusterIP Service 的工作原理、使用场景和实现细节。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/clusterip-service.svg" class="diagram">
+                    ClusterIP Service 示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>ClusterIP Service 基础</h2>
+            <p>ClusterIP Service 是 Kubernetes 中的默认 Service 类型，具有以下特点：</p>
+            <ul>
+                <li>分配一个集群内部的虚拟 IP 地址（ClusterIP）</li>
+                <li>只能在集群内部访问，不能从集群外部直接访问</li>
+                <li>提供负载均衡功能，将流量分发到后端 Pod</li>
+                <li>通过标签选择器（selector）选择目标 Pod</li>
+            </ul>
+            
+            <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80        # Service 暴露的端口
+    targetPort: 9376 # Pod 上的目标端口
+  type: ClusterIP    # 可以省略，因为这是默认类型
+            </div>
+        </section>
+
+        <section>
+            <h2>ClusterIP 地址分配机制</h2>
+            <p>ClusterIP 是从 Kubernetes 集群的 Service CIDR 范围内分配的，这个范围在集群创建时由 <code>--service-cluster-ip-range</code> 参数指定（默认通常是 10.96.0.0/12 或 10.0.0.0/16）。</p>
+            
+            <h3>分配过程：</h3>
+            <ol>
+                <li>当创建一个 Service 时，kube-apiserver 会检查是否指定了 <code>clusterIP</code> 字段</li>
+                <li>如果没有指定，则从 Service CIDR 范围内分配一个可用的 IP 地址</li>
+                <li>分配的 IP 地址会保存在 etcd 中，确保不会重复分配</li>
+                <li>如果指定了 <code>clusterIP: None</code>，则创建 Headless Service</li>
+            </ol>
+            
+            <div class="note-card">
+                <h3>重要说明</h3>
+                <p>ClusterIP 是一个虚拟 IP，不绑定到任何网络接口，也不会出现在任何网络接口的配置中。它仅存在于 iptables 或 IPVS 规则中，用于将流量重定向到后端 Pod。</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>ClusterIP Service 内部实现</h2>
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">iptables 模式</div>
+                    <div class="tab">IPVS 模式</div>
+                    <div class="tab">数据包流向</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>iptables 模式实现</h3>
+                        <p>在 iptables 模式下，kube-proxy 会为每个 Service 创建一系列 iptables 规则：</p>
+                        
+                        <div class="code-block">
+# 1. PREROUTING 和 OUTPUT 链中的规则，将目标为 ClusterIP 的流量重定向到 KUBE-SERVICES 链
+-A PREROUTING -j KUBE-SERVICES
+-A OUTPUT -j KUBE-SERVICES
+
+# 2. KUBE-SERVICES 链中的规则，匹配特定 Service 的 ClusterIP 和端口
+-A KUBE-SERVICES -d 10.96.1.10/32 -p tcp -m tcp --dport 80 -j KUBE-SVC-XXX
+
+# 3. KUBE-SVC-XXX 链中的规则，实现负载均衡（基于概率）
+-A KUBE-SVC-XXX -m statistic --mode random --probability 0.33333 -j KUBE-SEP-1
+-A KUBE-SVC-XXX -m statistic --mode random --probability 0.50000 -j KUBE-SEP-2
+-A KUBE-SVC-XXX -j KUBE-SEP-3
+
+# 4. KUBE-SEP-X 链中的规则，执行 DNAT 到具体的 Pod IP 和端口
+-A KUBE-SEP-1 -p tcp -j DNAT --to-destination 10.244.1.2:9376
+-A KUBE-SEP-2 -p tcp -j DNAT --to-destination 10.244.1.3:9376
+-A KUBE-SEP-3 -p tcp -j DNAT --to-destination 10.244.2.2:9376
+                        </div>
+                        
+                        <p>当数据包的目标地址是 ClusterIP 时，iptables 规则会将其转发到后端 Pod，实现负载均衡。</p>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>IPVS 模式实现</h3>
+                        <p>IPVS（IP Virtual Server）模式是 kube-proxy 的高性能模式，使用 Linux 内核的 IPVS 模块实现负载均衡：</p>
+                        
+                        <div class="code-block">
+# 查看 IPVS 规则
+$ ipvsadm -ln
+IP Virtual Server version 1.2.1 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  10.96.1.10:80 rr
+  -> 10.244.1.2:9376              Masq    1      0          0         
+  -> 10.244.1.3:9376              Masq    1      0          0         
+  -> 10.244.2.2:9376              Masq    1      0          0         
+                        </div>
+                        
+                        <p>IPVS 相比 iptables 有以下优势：</p>
+                        <ul>
+                            <li>使用哈希表作为数据结构，查找效率为 O(1)，而 iptables 是 O(n)</li>
+                            <li>支持更多的负载均衡算法：rr（轮询）、lc（最少连接）、dh（目的地哈希）、sh（源哈希）、sed（最短期望延迟）、nq（永不排队）</li>
+                            <li>性能更好，可以处理更多的 Service</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>数据包流向详解：请求与响应路径</h3>
+                        <p>理解 ClusterIP Service 的数据包如何在其生命周期中流转，对于诊断网络问题和优化性能至关重要。以下将详细描述从客户端 Pod 发起请求到接收到响应的完整路径。</p>
+
+                        <h4>请求路径 (Client Pod -> Service -> Target Pod)</h4>
+                        <ol>
+                            <li><strong>应用层发起请求</strong>: 客户端 Pod (例如，Pod A) 内的应用程序通过 DNS 解析（或直接使用 ClusterIP）向 Service 的 ClusterIP 和端口 (例如，<code>10.96.1.10:80</code>) 发起连接请求 (如 HTTP GET)。<br>
+                                <em>数据包初始状态 (Pod A 的网络命名空间):</em><br>
+                                Src IP: Pod A IP, Src Port: EphemeralPort_A<br>
+                                Dst IP: ClusterIP (<code>10.96.1.10</code>), Dst Port: ServicePort (<code>80</code>)
+                            </li>
+                            <li><strong>离开客户端 Pod 网络命名空间</strong>: 数据包通过客户端 Pod 的虚拟以太网接口 (<code>veth</code>) 对的 Pod 端发出，进入其宿主 Node (例如，Node 1) 的根网络命名空间。</li>
+                            <li><strong>Node 1 上的 <code>kube-proxy</code> 处理 (iptables/IPVS)</strong>:
+                                <ul>
+                                    <li>数据包到达 Node 1 的网络栈。如果请求来自 Node 1 上的 Pod，流量会经过 <code>OUTPUT</code> 链；如果来自其他 Node 的 Pod (不太常见于直接访问 ClusterIP，更多见于 NodePort 或 LoadBalancer 场景的后续跳转)，则会经过 <code>PREROUTING</code> 链。</li>
+                                    <li><code>kube-proxy</code> 在该 Node 上维护的网络规则 (<code>iptables</code> 链或 <code>IPVS</code> 虚拟服务器) 捕获到目标为 ClusterIP 的数据包。</li>
+                                    <li><strong>DNAT (Destination Network Address Translation)</strong>: <code>kube-proxy</code> 根据其负载均衡策略选择一个健康的后端 Pod (例如，Pod B，位于 Node 2 上，IP为 <code>10.244.2.2</code>，目标端口为 <code>9376</code>)。数据包的目标 IP 和端口被修改为选定 Pod 的 IP 和端口。<br>
+                                        <em>数据包状态 (Node 1, DNAT 后):</em><br>
+                                        Src IP: Pod A IP, Src Port: EphemeralPort_A<br>
+                                        Dst IP: Pod B IP (<code>10.244.2.2</code>), Dst Port: PodBTargetPort (<code>9376</code>)
+                                    </li>
+                                    <li>内核的连接跟踪 (<code>conntrack</code>) 模块记录此连接的原始信息和转换后的信息，以便正确处理响应包。</li>
+                                </ul>
+                            </li>
+                            <li><strong>跨节点路由 (如果需要)</strong>: 修改后的数据包现在目标是 Pod B 的实际 IP。Node 1 的路由表决定如何将数据包发送到 Node 2 (Pod B 所在的 Node)。这通常通过集群的 CNI 网络插件 (如 Flannel VXLAN, Calico BGP) 实现的底层网络进行。</li>
+                            <li><strong>到达目标 Node 和 Pod</strong>: 数据包到达 Node 2。Node 2 的网络栈将其路由到连接 Pod B 的 <code>veth</code> 接口，最终进入 Pod B 的网络命名空间。</li>
+                            <li><strong>Pod B 处理请求</strong>: Pod B 内的应用程序接收到请求，处理它，并准备响应。</li>
+                        </ol>
+
+                        <h4>响应路径 (Target Pod -> Service -> Client Pod)</h4>
+                        <ol>
+                            <li><strong>应用层发送响应</strong>: Pod B 的应用程序发送响应数据包。<br>
+                                <em>数据包初始状态 (Pod B 的网络命名空间):</em><br>
+                                Src IP: Pod B IP (<code>10.244.2.2</code>), Src Port: PodBTargetPort (<code>9376</code>)<br>
+                                Dst IP: Pod A IP, Dst Port: EphemeralPort_A
+                            </li>
+                            <li><strong>离开目标 Pod 网络命名空间</strong>: 响应包通过 Pod B 的 <code>veth</code> 接口离开其网络命名空间，进入 Node 2 的根网络命名空间。</li>
+                            <li><strong>Node 2 上的路由</strong>: Node 2 的路由表将数据包导向 Node 1 (Pod A 所在的 Node)，通过 CNI 网络。</li>
+                            <li><strong>到达客户端 Node (Node 1)</strong>: 响应包到达 Node 1。</li>
+                            <li><strong>连接跟踪 (Conntrack) 执行反向 NAT</strong>: Node 1 上的 <code>conntrack</code> 模块识别出这是一个先前已建立连接的响应包。它会查找之前 DNAT 操作的记录，并执行相应的反向转换：
+                                <ul>
+                                    <li>将数据包的源 IP 从 Pod B IP (<code>10.244.2.2</code>) 修改回 Service ClusterIP (<code>10.96.1.10</code>)。</li>
+                                    <li>将数据包的源端口从 PodBTargetPort (<code>9376</code>) 修改回 ServicePort (<code>80</code>)。</li>
+                                </ul>
+                                <em>数据包状态 (Node 1, 反向 NAT 后):</em><br>
+                                Src IP: ClusterIP (<code>10.96.1.10</code>), Src Port: ServicePort (<code>80</code>)<br>
+                                Dst IP: Pod A IP, Dst Port: EphemeralPort_A
+                                <p class="note"><strong>重要</strong>: 这种源地址的转换使得客户端 Pod A 认为它一直在与 Service ClusterIP 通信，而对后端 Pod 的实际 IP 无感知。</p>
+                            </li>
+                            <li><strong>进入客户端 Pod 网络命名空间</strong>: 经过反向 NAT 的数据包被路由到连接 Pod A 的 <code>veth</code> 接口，进入 Pod A 的网络命名空间。</li>
+                            <li><strong>应用层接收响应</strong>: Pod A 内的应用程序接收到响应，完成一次完整的 Service 调用。</li>
+                        </ol>
+
+                        <p><strong>图示说明 (<code>svg/clusterip-packet-flow.svg</code> 应包含以下关键元素):</strong></p>
+                        <ul>
+                            <li>两个 Node (Node 1, Node 2)。</li>
+                            <li>客户端 Pod A 在 Node 1上，目标 Pod B 在 Node 2上。</li>
+                            <li>清晰标出请求路径和响应路径。</li>
+                            <li>在 Node 1 的请求路径上，突出显示 <code>kube-proxy</code> (iptables/IPVS) 进行 DNAT 的位置。</li>
+                            <li>在 Node 1 的响应路径上，突出显示 <code>conntrack</code> 进行反向 NAT 的位置。</li>
+                            <li>显示 CNI 网络在 Node 1 和 Node 2 之间的作用。</li>
+                            <li>标注数据包在关键转换点 (DNAT 前后，反向 NAT 前后) 的源/目标 IP 和端口。</li>
+                        </ul>
+                        <div class="diagram-container">
+                            <img src="svg/clusterip-packet-flow.svg" alt="ClusterIP 数据包详细流向" class="diagram">
+                            <p class="diagram-caption">图: ClusterIP Service 数据包详细流向 (请求与响应)</p>
+                        </div>
+                        <p>通过这个详细的流程，我们可以看到 ClusterIP Service 如何通过内核网络堆栈中的 DNAT 和连接跟踪机制，巧妙地将对虚拟 IP 的请求透明地转发到实际的后端 Pod，同时对客户端隐藏了后端的复杂性。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>kube-proxy 工作模式深度解析</h2>
+            <p><code>kube-proxy</code> 是 Kubernetes Service 实现的核心组件，它运行在每个 Node 上，负责维护网络规则并将流量从 Service 转发到正确的后端 Pod。<code>kube-proxy</code> 支持多种工作模式，每种模式都有其特定的实现机制和性能特点。了解这些模式对于深入理解 Service 网络至关重要。</p>
+
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">iptables 模式</div>
+                    <div class="tab">IPVS 模式</div>
+                    <div class="tab">userspace 模式 (历史)</div>
+                </div>
+
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>iptables 模式</h3>
+                        <p><code>iptables</code> 模式是 <code>kube-proxy</code> 长期以来的默认模式。在这种模式下，<code>kube-proxy</code> 会监视 Kubernetes API Server 中 Service 和 Endpoints 对象的变化，并相应地在每个 Node 上配置 <code>iptables</code> 规则。</p>
+                        <p><strong>工作原理：</strong></p>
+                        <ol>
+                            <li><strong>规则创建</strong>: 对于每个 Service，<code>kube-proxy</code> 会创建一系列 <code>iptables</code> 规则。这些规则通常分布在 <code>nat</code> 表的 <code>KUBE-SERVICES</code>, <code>KUBE-SVC-*</code>, 和 <code>KUBE-SEP-*</code> 等自定义链中。</li>
+                            <li><strong>流量拦截</strong>: 当发往 Service ClusterIP 和端口的流量到达 Node 时，<code>PREROUTING</code> 或 <code>OUTPUT</code> 链中的规则会将其重定向到 <code>KUBE-SERVICES</code> 链。</li>
+                            <li><strong>Service 匹配</strong>: <code>KUBE-SERVICES</code> 链会根据目标 IP 和端口将流量导向特定的 <code>KUBE-SVC-*</code> 链。</li>
+                            <li><strong>负载均衡</strong>: 在 <code>KUBE-SVC-*</code> 链中，通过 <code>statistic</code> 模块的随机模式或轮询（取决于具体实现）将流量概率性地导向多个 <code>KUBE-SEP-*</code> (Service Endpoint) 链。每个 <code>KUBE-SEP-*</code> 链代表一个后端 Pod。</li>
+                            <li><strong>DNAT</strong>: 在 <code>KUBE-SEP-*</code> 链中，执行目标网络地址转换 (DNAT)，将数据包的目标 IP 和端口修改为后端 Pod 的实际 IP 和端口。</li>
+                            <li><strong>连接跟踪</strong>: Linux 内核的连接跟踪 (<code>conntrack</code>) 模块会记录这些连接，确保响应流量能够正确地反向 NAT 并返回给源客户端。</li>
+                        </ol>
+                        <p><strong>优点：</strong></p>
+                        <ul>
+                            <li>成熟稳定，广泛使用。</li>
+                            <li>不需要额外的依赖，<code>iptables</code> 是 Linux 内核的标准部分。</li>
+                        </ul>
+                        <p><strong>缺点：</strong></p>
+                        <ul>
+                            <li><strong>性能瓶颈</strong>: 当 Service 和 Endpoints 数量非常大时 (例如上万个)，<code>iptables</code> 规则的线性和遍历特性会导致性能下降。每次数据包匹配都需要遍历一个潜在很长的规则列表。</li>
+                            <li><strong>更新延迟</strong>: 更新大量 <code>iptables</code> 规则可能比较慢，导致 Service 变更生效的延迟。</li>
+                            <li><strong>可管理性</strong>: 大量的 <code>iptables</code> 规则难以调试和维护。</li>
+                        </ul>
+                        <div class="code-block">
+# 示例：查看 Service 相关的 iptables 规则 (通常在 Node 上执行)
+sudo iptables-save | grep KUBE-SERVICES
+sudo iptables -t nat -L KUBE-SVC-YOUR_SERVICE_CHAIN_HASH
+                        </div>
+                    </div>
+
+                    <div class="tab-pane">
+                        <h3>IPVS 模式</h3>
+                        <p>IPVS (IP Virtual Server) 是 Linux 内核中内置的一个高性能L4负载均衡器。<code>kube-proxy</code> 的 <code>IPVS</code> 模式利用 IPVS 来实现 Service 的流量转发和负载均衡。自 Kubernetes v1.11 起，IPVS 模式已达到 GA (General Availability) 状态。</p>
+                        <p><strong>工作原理：</strong></p>
+                        <ol>
+                            <li><strong>虚拟服务器创建</strong>: 对于每个 Service，<code>kube-proxy</code> 会在 IPVS 中创建一个虚拟服务器 (Virtual Server)，其 IP 和端口对应 Service 的 ClusterIP 和端口。</li>
+                            <li><strong>真实服务器关联</strong>: Service 的每个 Endpoint (后端 Pod) 会被添加为该虚拟服务器的真实服务器 (Real Server)。</li>
+                            <li><strong>流量转发</strong>: 当流量到达 Node 时，如果目标是某个 Service 的 ClusterIP，IPVS 会直接接管流量。</li>
+                            <li><strong>负载均衡算法</strong>: IPVS 根据为虚拟服务器配置的负载均衡算法 (如轮询 <code>rr</code>, 最少连接 <code>lc</code>, 源哈希 <code>sh</code> 等) 选择一个后端 Pod。</li>
+                            <li><strong>转发</strong>: IPVS 将流量直接转发到选定的后端 Pod。IPVS 支持多种转发方法，如 NAT (<code>DR</code>, <code>Tunneling</code> 也是 IPVS 的一部分，但 K8s 主要用 NAT)。</li>
+                            <li><strong>连接跟踪集成</strong>: IPVS 也与内核的连接跟踪机制集成。</li>
+                        </ol>
+                        <p><code>kube-proxy</code> 在 IPVS 模式下，仍然会使用 <code>iptables</code> (或 <code>nftables</code>) 进行一些辅助操作，例如处理源 IP 地址保留 (<code>externalTrafficPolicy: Local</code>) 或 masquerading。</p>
+                        <p><strong>优点：</strong></p>
+                        <ul>
+                            <li><strong>高性能</strong>: IPVS 使用内核哈希表来存储和查找服务规则，其性能远超 <code>iptables</code>，尤其是在大量 Service 的场景下，可以提供近乎 O(1) 的查找效率。</li>
+                            <li><strong>更多负载均衡算法</strong>: 支持多种成熟的负载均衡算法，可以根据需求进行选择。</li>
+                            <li><strong>更好的可扩展性</strong>: 能够平稳处理大规模集群中的大量 Service 和 Endpoints。</li>
+                        </ul>
+                        <p><strong>缺点：</strong></p>
+                        <ul>
+                            <li><strong>内核依赖</strong>: 需要 Node 内核加载 IPVS 相关的模块 (如 <code>ip_vs</code>, <code>ip_vs_rr</code>, <code>ip_vs_wrr</code>, <code>ip_vs_sh</code>, <code>nf_conntrack</code>)。大多数现代 Linux 发行版默认包含这些模块。</li>
+                            <li><strong>同步问题</strong>: 早期版本中存在 IPVS 规则与 API Server 状态同步的一些问题，但已逐渐改善。</li>
+                        </ul>
+                        <div class="code-block">
+# 示例：查看 IPVS 规则 (通常在 Node 上执行，需要安装 ipvsadm 工具)
+sudo ipvsadm -Ln
+                        </div>
+                        <p>要启用 IPVS 模式，通常需要在 <code>kube-proxy</code> 的配置中设置 <code>mode: "ipvs"</code>。</p>
+                    </div>
+
+                    <div class="tab-pane">
+                        <h3>userspace 模式 (历史)</h3>
+                        <p><code>userspace</code> 模式是 <code>kube-proxy</code> 最早期的实现方式，目前已不推荐在生产环境中使用，主要由于其性能较低。</p>
+                        <p><strong>工作原理：</strong></p>
+                        <ol>
+                            <li><strong>端口监听</strong>: <code>kube-proxy</code> 进程本身会为每个 Service 在 Node 上监听一个端口。</li>
+                            <li><strong>iptables 规则</strong>: <code>iptables</code> 规则会将发往 Service ClusterIP 的流量重定向到 <code>kube-proxy</code> 监听的这个本地端口。</li>
+                            <li><strong>用户空间代理</strong>: 当流量到达 <code>kube-proxy</code> 监听的端口后，<code>kube-proxy</code> 进程在用户空间进行负载均衡决策，选择一个后端 Pod。</li>
+                            <li><strong>流量转发</strong>: <code>kube-proxy</code> 随后将流量从其进程转发到选定的后端 Pod。</li>
+                        </ol>
+                        <p><strong>优点：</strong></p>
+                        <ul>
+                            <li>实现相对简单，易于理解。</li>
+                        </ul>
+                        <p><strong>缺点：</strong></p>
+                        <ul>
+                            <li><strong>性能极差</strong>: 所有 Service 流量都需要经过用户空间的 <code>kube-proxy</code> 进程进行中转，这引入了大量的内核空间到用户空间的上下文切换，以及额外的网络跳数，导致高延迟和低吞吐量。</li>
+                            <li><strong>单点瓶颈</strong>: <code>kube-proxy</code> 进程本身可能成为性能瓶颈。</li>
+                            <li><strong>已废弃</strong>: 由于性能问题，该模式已不推荐使用，并在较新的 Kubernetes 版本中可能被移除。</li>
+                        </ul>
+                        <p>尽管 <code>userspace</code> 模式有其历史意义，但在现代 Kubernetes 集群中，应优先考虑 <code>IPVS</code> 模式，或者在特定情况下使用成熟的 <code>iptables</code> 模式。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>动手实验：深入理解 ClusterIP Service</h2>
+            
+            <div class="experiment-card">
+                <h3>实验 1：创建和测试 ClusterIP Service</h3>
+                <p>本实验将引导您完成创建、测试和验证 ClusterIP Service 的全过程，帮助您直观地理解其基本功能和负载均衡特性。</p>
+
+                <h4>步骤 1：部署测试应用</h4>
+                <p>首先，我们部署一个简单的 Nginx Web 应用，它将作为我们 Service 的后端服务。我们将创建3个副本，以便后续观察负载均衡效果。同时，我们会为每个 Pod 的 Nginx 首页添加 Pod 自身的主机名，方便区分请求被路由到了哪个 Pod。</p>
+                <div class="code-block command">
+# 1. 创建一个 Deployment，包含3个 Nginx Pod 副本
+# 使用 nginx:alpine 镜像以保持轻量
+# --replicas=3 指定了副本数量
+kubectl create deployment web-demo --image=nginx:alpine --replicas=3
+
+# 2. 为 Deployment 创建的 Pod 添加标签 app=web-demo
+# Service 将通过这个标签来选择后端 Pod
+kubectl label deployment web-demo app=web-demo
+
+# 3. 修改每个 Pod 的 Nginx 默认欢迎页面，使其显示 Pod 的主机名
+# 这样我们可以清楚地看到 Service 将请求路由到了哪个 Pod
+# 首先获取所有 app=web-demo 的 Pod 名称
+POD_NAMES=$(kubectl get pods -l app=web-demo -o jsonpath='{.items[*].metadata.name}')
+
+# 循环遍历每个 Pod 并执行命令修改 index.html
+for POD_NAME in $POD_NAMES; do \
+  kubectl exec -it $POD_NAME -- sh -c \
+  'echo "<h1>Pod: $(hostname)</h1><p>Serving from Nginx on ClusterIP Service</p><p>My IP: $(hostname -i)</p>" > /usr/share/nginx/html/index.html'; \
+done
+
+# 4. 验证 Pod 是否都已运行并且标签已正确添加
+kubectl get pods -l app=web-demo --show-labels
+
+# 5. （可选）检查某个 Pod 的 Nginx 页面内容，确保已成功修改
+FIRST_POD_NAME=$(kubectl get pods -l app=web-demo -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it $FIRST_POD_NAME -- cat /usr/share/nginx/html/index.html
+                </div>
+                
+                <div class="code-block output">
+# 预期输出示例:
+# kubectl create deployment ...
+deployment.apps/web-demo created
+
+# kubectl label ...
+deployment.apps/web-demo labeled
+
+# kubectl get pods ... (Pod 名称和哈希值会不同)
+NAME                        READY   STATUS    RESTARTS   AGE   LABELS
+web-demo-5dcfc76b87-abcde   1/1     Running   0          60s   app=web-demo
+web-demo-5dcfc76b87-fghij   1/1     Running   0          60s   app=web-demo
+web-demo-5dcfc76b87-klmno   1/1     Running   0          60s   app=web-demo
+
+# kubectl exec cat ... (Pod 名称会不同)
+<h1>Pod: web-demo-5dcfc76b87-abcde</h1><p>Serving from Nginx on ClusterIP Service</p><p>My IP: 10.244.X.Y</p>
+                </div>
+                <p class="analysis"><strong>结果分析：</strong> 通过以上命令，我们成功部署了3个 Nginx Pod，并为它们打上了 <code>app=web-demo</code> 的标签。每个 Pod 内部的 <code>index.html</code> 也被修改，会显示其唯一的主机名。这是后续验证 Service 负载均衡的关键。</p>
+
+                <h4>步骤 2：创建 ClusterIP Service</h4>
+                <p>接下来，我们将创建一个 ClusterIP类型的 Service，它将选择上一步中部署的带有 <code>app=web-demo</code> 标签的 Pod 作为后端。</p>
+                <div class="code-block command">
+# 1. 使用 cat 命令创建一个名为 web-service.yaml 的 Service 定义文件
+cat > web-service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-demo       # Service 的名称
+spec:
+  selector:
+    app: web-demo     # 这个 selector 必须匹配我们后端 Pod 的标签
+  ports:
+  - name: http        # 端口名称 (可选, 但推荐)
+    port: 80          # Service 暴露的端口 (其他 Pod 通过这个端口访问 Service)
+    targetPort: 80    # Pod 容器实际监听的端口 (Nginx 默认监听80端口)
+  type: ClusterIP     # 明确指定 Service 类型为 ClusterIP (虽然这是默认类型)
+EOF
+
+# 2. 应用 YAML 文件来创建 Service
+kubectl apply -f web-service.yaml
+
+# 3. 验证 Service 是否已成功创建，并查看其 ClusterIP
+kubectl get service web-demo
+
+# 4. 查看 Service 更详细的信息，包括其选择的 Endpoints
+kubectl describe service web-demo
+                </div>
+                
+                <div class="code-block output">
+# 预期输出示例:
+# kubectl apply ...
+service/web-demo created
+
+# kubectl get service ... (ClusterIP 会不同)
+NAME       TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+web-demo   ClusterIP   10.96.123.45   <none>        80/TCP    10s
+
+# kubectl describe service ... (部分输出)
+Name:              web-demo
+Namespace:         default
+Selector:          app=web-demo
+Type:              ClusterIP
+IP:                10.96.123.45
+Port:              http  80/TCP
+TargetPort:        80/TCP
+Endpoints:         10.244.1.2:80,10.244.2.3:80,10.244.3.4:80 # 这里会显示后端 Pod 的 IP 和端口
+Session Affinity:  None
+                </div>
+                <p class="analysis"><strong>结果分析：</strong> 我们创建了一个名为 <code>web-demo</code> 的 ClusterIP Service。它获得了集群内唯一的虚拟 IP (ClusterIP)，例如 <code>10.96.123.45</code>。重要的是，<code>Endpoints</code> 字段显示了 Service 成功选择了我们之前创建的3个 Nginx Pod 的 IP 地址和端口。这意味着 Service 已经准备好将流量转发到这些 Pod。</p>
+
+                <h4>步骤 3：测试 Service</h4>
+                <p>现在 Service 已经创建并关联了后端 Pods，我们可以从集群内部的另一个 Pod 来测试它。我们将创建一个临时的 BusyBox Pod，并使用 <code>wget</code> 工具访问 Service。</p>
+                <div class="code-block command">
+# 1. 启动一个临时的 BusyBox Pod，并进入其 shell 环境
+# --rm: Pod 退出后自动删除
+# -i --tty: 分配一个伪终端并保持标准输入打开
+# --image=busybox: 使用轻量级的 busybox 镜像
+# --restart=Never: Pod 退出后不重启
+kubectl run -i --tty --rm debug-pod --image=busybox --restart=Never -- sh
+
+# --- 以下命令在 debug-pod 的 shell 中执行 ---
+
+# 2. 使用 Service 名称访问服务 (依赖于集群 DNS)
+# wget -qO- 会获取内容并输出到标准输出
+echo "Attempting to access Service by name (web-demo):"
+wget -qO- web-demo
+
+# 3. 多次访问 Service，观察响应来自哪个 Pod，以验证负载均衡
+# Kubernetes Service 默认使用轮询 (round-robin) 或随机策略
+echo "\nAccessing Service multiple times to observe load balancing:"
+for i in $(seq 1 10); do \
+  echo -n "Request $i: "; \
+  wget -qO- web-demo | grep "Pod:"; \
+  sleep 0.5; \
+done
+
+# 4. 使用 Service 的 FQDN (完全限定域名) 访问服务
+# 格式: <service-name>.<namespace>.svc.cluster.local
+echo "\nAttempting to access Service by FQDN:"
+wget -qO- web-demo.default.svc.cluster.local
+
+# 5. (可选) 直接使用 Service 的 ClusterIP 访问 (替换为你的实际 ClusterIP)
+# CLUSTER_IP=$(kubectl get service web-demo -o jsonpath='{.spec.clusterIP}')
+# echo "\nAttempting to access Service by ClusterIP ($CLUSTER_IP):"
+# wget -qO- $CLUSTER_IP
+
+# 6. 退出 debug-pod 的 shell
+exit
+# --- 命令结束 ---
+                </div>
+                
+                <div class="code-block output">
+# 预期输出示例 (在 debug-pod 内部):
+
+# wget web-demo (单次访问)
+Attempting to access Service by name (web-demo):
+<h1>Pod: web-demo-5dcfc76b87-abcde</h1><p>Serving from Nginx on ClusterIP Service</p><p>My IP: 10.244.X.Y</p>
+
+# for 循环访问 (多次访问，Pod 名称会变化，展示负载均衡)
+Accessing Service multiple times to observe load balancing:
+Request 1: <h1>Pod: web-demo-5dcfc76b87-abcde</h1>
+Request 2: <h1>Pod: web-demo-5dcfc76b87-fghij</h1>
+Request 3: <h1>Pod: web-demo-5dcfc76b87-klmno</h1>
+Request 4: <h1>Pod: web-demo-5dcfc76b87-abcde</h1>
+...
+
+# wget web-demo.default.svc.cluster.local (FQDN 访问)
+Attempting to access Service by FQDN:
+<h1>Pod: web-demo-5dcfc76b87-fghij</h1><p>Serving from Nginx on ClusterIP Service</p><p>My IP: 10.244.A.B</p>
+
+# kubectl run ... (命令执行后，你会进入 debug-pod 的 shell，执行完内部命令并 exit 后，Pod 会被删除)
+# pod "debug-pod" deleted
+                </div>
+                <p class="analysis"><strong>结果分析：</strong></p>
+                <ul>
+                    <li>我们能够通过 Service 名称 (<code>web-demo</code>) 和 FQDN (<code>web-demo.default.svc.cluster.local</code>) 成功访问 Nginx 服务。这证明了 Kubernetes 集群内部 DNS 服务 (通常是 CoreDNS) 的正常工作，它将 Service 名称解析为其 ClusterIP。</li>
+                    <li>多次重复访问 Service 时，<code>grep "Pod:"</code> 的输出显示请求被分发到了不同的后端 Pod (<code>web-demo-xxxxx-abcde</code>, <code>web-demo-xxxxx-fghij</code>, 等)。这直观地展示了 ClusterIP Service 的负载均衡能力。默认情况下，kube-proxy 会在多个健康的 Endpoints 之间大致均匀地分发请求。</li>
+                    <li>如果直接使用 ClusterIP 访问，也会得到类似的结果。</li>
+                </ul>
+                <p>这个实验验证了 ClusterIP Service 的核心功能：提供一个稳定的内部 IP 地址，并通过该 IP 将流量负载均衡到后端的一组 Pod。</p>
+
+                <h4>步骤 4：检查 Service 的 Endpoints</h4>
+                <p>Endpoints 对象存储了 Service 关联的实际后端 Pod 的 IP 地址和端口。当 Service 的 selector 匹配的 Pod 发生变化 (例如，Pod 被创建、删除或变得不健康) 时，Endpoints 对象会自动更新。</p>
+                <div class="code-block command">
+# 1. 查看 Service 'web-demo' 关联的 Endpoints 对象
+# 这会显示当前所有健康的后端 Pod IP 和端口
+kubectl get endpoints web-demo
+
+# 2. 查看 Endpoints 对象的详细信息
+# 这能提供更多关于 Subsets, Addresses, NotReadyAddresses, 和 Ports 的信息
+kubectl describe endpoints web-demo
+
+# 3. (可选, Kubernetes 1.17+ ) 查看与 Service关联的 EndpointSlices
+# EndpointSlices 是对 Endpoints 资源的可伸缩性和可扩展性改进
+kubectl get endpointslices -l kubernetes.io/service-name=web-demo
+                </div>
+                
+                <div class="code-block output">
+# kubectl get endpoints ... (IP 地址和 Pod 数量可能不同)
+NAME       ENDPOINTS                                                     AGE
+web-demo   10.244.1.2:80,10.244.2.3:80,10.244.3.4:80                   10m
+
+# kubectl describe endpoints ... (部分输出)
+Name:         web-demo
+Namespace:    default
+Labels:       <none>
+Annotations:  endpoints.kubernetes.io/last-change-trigger-time: 2023-10-27T12:34:56Z
+Subsets:
+  Addresses:          10.244.1.2,10.244.2.3,10.244.3.4
+  NotReadyAddresses:  <none>
+  Ports:
+    Name  Port  Protocol
+    ----  ----  --------
+    http  80    TCP
+Events:  <none>
+
+# kubectl get endpointslices ... (名称哈希会不同)
+NAME              ADDRESSTYPE   PORTS   ENDPOINTS                                  AGE
+web-demo-6g9k5    IPv4          80      10.244.1.2,10.244.2.3,10.244.3.4           10m
+                </div>
+                <p class="analysis"><strong>结果分析：</strong></p>
+                <ul>
+                    <li><code>kubectl get endpoints web-demo</code> 的输出清晰地列出了所有当前为 <code>web-demo</code> Service 提供服务的 Pod 的 IP 地址和端口。这些是 Service 流量实际会被转发到的地方。</li>
+                    <li><code>describe</code> 命令提供了更结构化的视图，包括 <code>Addresses</code> (健康 Pods) 和 <code>NotReadyAddresses</code> (不健康或未就绪 Pods，本例中应为空)。</li>
+                    <li><code>EndpointSlices</code> (如果您的集群版本支持) 提供了更细粒度的端点管理，对于大规模集群尤其重要。</li>
+                </ul>
+                <p>监控 Endpoints 对象是诊断 Service 问题的关键步骤。如果 Endpoints 列表为空或不包含预期的 Pod IP，那么 Service 将无法正常工作。这通常意味着 Service 的 <code>selector</code> 没有正确匹配任何运行中且健康的 Pod 的标签，或者匹配的 Pod 未通过就绪探针检查。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 2：分析 ClusterIP Service 的网络规则</h3>
+                <p>本实验将深入探讨 <code>kube-proxy</code> 如何在 Node 上创建网络规则来实现 ClusterIP Service。我们将主要关注 <code>iptables</code> 模式，并简要介绍如何在 <code>IPVS</code> 模式下查看规则。这些规则是 Service 得以工作的核心机制。</p>
+                <p class="note"><strong>注意：</strong> 以下命令需要在 Kubernetes 集群的 Node 上执行，或者通过带有特权模式的 Pod (如 <code>kubectl debug node/&lt;node-name&gt;</code>) 来访问 Node 的网络命名空间。请确保您有相应的权限，并在测试环境中操作。</p>
+
+                <h4>步骤 1：检查 iptables 规则 (当 kube-proxy 使用 iptables 模式时)</h4>
+                <p>如果您的集群 <code>kube-proxy</code> 配置为 <code>iptables</code> 模式 (这是很多集群的默认设置)，它会创建一系列的 <code>iptables</code> 链和规则来捕获发往 Service ClusterIP 的流量，并将其 DNAT 到后端 Pod。</p>
+                <div class="code-block command">
+# 1. 选择一个 Node，并进入其调试环境
+# 将 <node-name> 替换为您的实际节点名称
+# 我们使用 ubuntu 镜像，其中包含 iptables 工具
+kubectl debug node/$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -it --image=ubuntu -- sh
+
+# --- 以下命令在 Node 的调试 Shell 中执行 ---
+
+# 2. 更新包列表并安装 iptables (如果镜像中没有预装)
+apt-get update && apt-get install -y iptables
+
+# 3. 获取 web-demo Service 的 ClusterIP 和端口 (在 Node Shell 或另一个终端执行)
+# 您需要这个 IP 和端口来查找相关的 iptables 规则
+# SERVICE_CLUSTER_IP=$(kubectl get svc web-demo -o jsonpath='{.spec.clusterIP}')
+# SERVICE_PORT=$(kubectl get svc web-demo -o jsonpath='{.spec.ports[0].port}')
+# echo "Service web-demo ClusterIP: $SERVICE_CLUSTER_IP, Port: $SERVICE_PORT"
+# (假设 SERVICE_CLUSTER_IP=10.96.1.10, SERVICE_PORT=80 用于以下示例)
+
+# 4. 查看所有与 "web-demo" Service 名称相关的 iptables 规则 (nat 表)
+# kube-proxy 通常会使用 Service 名称或其哈希值来命名相关的链
+# 注意：规则可能非常多，这里 grep "web-demo" 是为了初步筛选，更精确的查找需要 ClusterIP
+echo "\n--- All rules potentially related to web-demo (service name may appear in comments) ---"
+iptables-save | grep 'web-demo'
+
+# 5. 更精确地查找 KUBE-SERVICES 链中针对我们 Service ClusterIP (例如 10.96.1.10) 和端口 (例如 80) 的规则
+# 这是流量匹配 Service 的入口点
+echo "\n--- KUBE-SERVICES chain entries for our Service IP and Port (e.g., 10.96.1.10:80) ---"
+iptables -t nat -L KUBE-SERVICES -n | grep '10.96.1.10.*tcp dpt:80'
+# (将 10.96.1.10 和 80 替换为您的实际 Service ClusterIP 和端口)
+
+# 6. 从上一条命令的输出中，找到跳转的目标链 (通常是 KUBE-SVC-XXXXX)
+# 例如，如果上一条输出是 "... jump KUBE-SVC-ABCDEFGHIJKLMNOP"，则 SVC_CHAIN="KUBE-SVC-ABCDEFGHIJKLMNOP"
+# 手动记下这个 KUBE-SVC-XXXXX 链名
+# SVC_CHAIN="KUBE-SVC-YOUR_SERVICE_HASH_HERE" # 请替换为实际的链名
+
+# 7. 列出这个 KUBE-SVC-XXXXX 链中的规则
+# 这条链负责将流量负载均衡到不同的 KUBE-SEP-XXXXX (Service Endpoint) 链
+echo "\n--- Rules in the KUBE-SVC-XXXXX chain (e.g., KUBE-SVC-ABCDEFGHIJKLMNOP) ---"
+# iptables -t nat -L $SVC_CHAIN -n # 取消注释并替换 $SVC_CHAIN
+
+# 8. 查看所有 KUBE-SEP-XXXXX (Service Endpoint) 链的规则，这些链与 web-demo 相关
+# KUBE-SEP-XXXXX 链执行实际的 DNAT 到后端 Pod IP
+# 我们通过查找包含 web-demo Service ClusterIP 注释的 KUBE-SVC 规则，再找到其关联的 KUBE-SEP 规则
+echo "\n--- KUBE-SEP-XXXXX chains and their DNAT rules for web-demo ---"
+iptables-save | grep -A 4 'comment "default/web-demo.*tcp dpt:80"' | grep 'KUBE-SEP-'
+
+# 9. 退出 Node 的调试 Shell
+exit
+# --- Node Shell 命令结束 ---
+                </div>
+                
+                <div class="code-block output">
+# 预期输出示例 (内容会根据您的集群和 Service IP 而变化):
+
+# iptables -t nat -L KUBE-SERVICES -n | grep '10.96.1.10.*tcp dpt:80'
+# Output should show a rule like:
+# KUBE-SERVICES  all  --  0.0.0.0/0            0.0.0.0/0            /* default/web-demo cluster IP */ tcp dpt:80 ADDRTYPE match dst-type LOCAL /* default/web-demo cluster IP */ HASH=KUBE-SVC-ABCDEFGHIJKLMNOP 
+# 或者
+# DNAT       tcp  --  0.0.0.0/0            10.96.1.10           /* default/web-demo */ tcp dpt:80 to:KUBE-SVC-ABCDEFGHIJKLMNOP
+
+# iptables -t nat -L KUBE-SVC-ABCDEFGHIJKLMNOP -n (替换链名后)
+# Output will show multiple rules, each potentially jumping to a KUBE-SEP-XXXXX chain:
+# KUBE-SVC-ABCDEFGHIJKLMNOP  all  --  0.0.0.0/0            0.0.0.0/0            statistic mode random probability 0.33333 /* ... */ HASH=KUBE-SEP-QRSTUVWXYZ
+# KUBE-SVC-ABCDEFGHIJKLMNOP  all  --  0.0.0.0/0            0.0.0.0/0            statistic mode random probability 0.50000 /* ... */ HASH=KUBE-SEP-RSTUVWXY
+# KUBE-SVC-ABCDEFGHIJKLMNOP  all  --  0.0.0.0/0            0.0.0.0/0            /* ... */ HASH=KUBE-SEP-VWXYZABC
+
+# iptables-save | grep -A 4 'comment "default/web-demo.*tcp dpt:80"' | grep 'KUBE-SEP-'
+# Output will show the DNAT rules for each endpoint:
+# -A KUBE-SEP-QRSTUVWXYZ -s 10.244.1.2/32 -m comment --comment "default/web-demo" -j KUBE-MARK-MASQ
+# -A KUBE-SEP-QRSTUVWXYZ -p tcp -m comment --comment "default/web-demo" -m tcp -j DNAT --to-destination 10.244.1.2:80
+# -A KUBE-SEP-RSTUVWXY -s 10.244.2.3/32 -m comment --comment "default/web-demo" -j KUBE-MARK-MASQ
+# -A KUBE-SEP-RSTUVWXY -p tcp -m comment --comment "default/web-demo" -m tcp -j DNAT --to-destination 10.244.2.3:80
+# (示例中假设后端 Pod IP 为 10.244.1.2, 10.244.2.3 等)
+                </div>
+                <p class="analysis"><strong>结果分析：</strong></p>
+                <ul>
+                    <li><code>KUBE-SERVICES</code> 链是 Service 流量的总入口。当一个数据包的目标 IP 和端口匹配 <code>web-demo</code> Service 的 ClusterIP 和端口时，它会被跳转到一个特定的 <code>KUBE-SVC-XXXXX</code> 链。</li>
+                    <li><code>KUBE-SVC-XXXXX</code> 链 (例如 <code>KUBE-SVC-ABCDEFGHIJKLMNOP</code>) 包含了负载均衡逻辑。对于有多个后端 Pod 的 Service，这里通常会有多条规则，使用 <code>statistic</code> 模块的 <code>random</code> 模式（或者旧版本可能是轮询）按概率将流量导向不同的 <code>KUBE-SEP-XXXXX</code> 链。每个 <code>KUBE-SEP-XXXXX</code> 链对应一个后端 Pod (Endpoint)。</li>
+                    <li><code>KUBE-SEP-XXXXX</code> 链 (例如 <code>KUBE-SEP-QRSTUVWXYZ</code>) 执行最终的 DNAT 操作，将数据包的目标 IP 和端口修改为实际后端 Pod 的 IP 和端口 (例如 <code>10.244.1.2:80</code>)。它通常还包含一条 <code>KUBE-MARK-MASQ</code> 规则，用于确保出站流量被正确地进行 SNAT (源地址转换)，以便响应能够正确返回。</li>
+                </ul>
+                <p>通过分析这些链和规则，您可以清晰地看到 <code>iptables</code> 是如何实现 Service 的虚拟 IP 和负载均衡的。理解这些规则对于诊断 Service 连接问题非常有帮助。</p>
+
+                <h4>步骤 2：检查 IPVS 规则（如果启用了 IPVS 模式）</h4>
+                <p>如果您的集群 <code>kube-proxy</code> 配置为 <code>IPVS</code> 模式，它会使用 Linux 内核的 IP Virtual Server 来管理 Service 规则，这通常比 <code>iptables</code> 模式具有更好的性能和可伸缩性。</p>
+                <div class="code-block command">
+# 1. 再次进入 Node 的调试 Shell (如果已退出)
+# kubectl debug node/$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -it --image=ubuntu -- sh
+
+# --- 以下命令在 Node 的调试 Shell 中执行 ---
+
+# 2. 更新包列表并安装 ipvsadm 工具 (如果镜像中没有预装)
+# apt-get update && apt-get install -y ipvsadm
+
+# 3. 获取 web-demo Service 的 ClusterIP (在 Node Shell 或另一个终端执行)
+# CLUSTER_IP=$(kubectl get svc web-demo -o jsonpath='{.spec.clusterIP}')
+# echo "Service web-demo ClusterIP: $CLUSTER_IP"
+# (假设 CLUSTER_IP=10.96.1.10 用于以下示例)
+
+# 4. 列出所有 IPVS 规则，并筛选与我们 Service ClusterIP 相关的规则
+# 将 10.96.1.10 替换为您的实际 Service ClusterIP
+echo "\n--- IPVS rules for Service ClusterIP (e.g., 10.96.1.10) ---"
+ipvsadm -Ln | grep -A 4 '10.96.1.10'
+# (-A 4 表示显示匹配行及其后的4行，以捕获后端 Pods)
+
+# 5. (可选) 查看更详细的 IPVS 连接信息 (可能会有很多输出)
+# ipvsadm -Lcn
+
+# 6. 退出 Node 的调试 Shell
+# exit
+# --- Node Shell 命令结束 ---
+                </div>
+                
+                <div class="code-block output">
+# 预期输出示例 (ClusterIP 和 Pod IP 会不同, rr 表示 round-robin 调度算法):
+# ipvsadm -Ln | grep -A 4 '10.96.1.10'
+TCP  10.96.1.10:80 rr
+  -> 10.244.1.2:80              Masq    1      0          0         
+  -> 10.244.2.3:80              Masq    1      0          0         
+  -> 10.244.3.4:80              Masq    1      0          0
+                </div>
+                <p class="analysis"><strong>结果分析：</strong></p>
+                <ul>
+                    <li><code>ipvsadm -Ln</code> 的输出显示了 IPVS 维护的虚拟服务器 (Virtual Servers) 和真实服务器 (Real Servers)。</li>
+                    <li>每一行以 <code>TCP</code> 或 <code>UDP</code> 开头，后跟 Service 的 ClusterIP 和端口 (例如 <code>10.96.1.10:80</code>)，这代表一个虚拟服务器。<code>rr</code> 表示使用的负载均衡算法是轮询 (Round-Robin)。</li>
+                    <li>在虚拟服务器下方缩进的行 (以 <code>-></code> 开头) 是其关联的真实服务器，即后端 Pod 的 IP 和端口 (例如 <code>10.244.1.2:80</code>)。<code>Masq</code> 表示转发模式为 NAT (Masquerading)。</li>
+                    <li>这个输出清晰地表明，当流量到达 ClusterIP <code>10.96.1.10:80</code> 时，IPVS 会根据轮询算法将其转发到列出的某个后端 Pod。</li>
+                </ul>
+                <p>IPVS 模式的规则通常更简洁，且在大规模集群中性能更优。<code>kube-proxy</code> 在 IPVS 模式下仍可能使用少量 <code>iptables</code> 规则进行辅助，例如数据包的SNAT。</p>
+
+                <h4>步骤 3：跟踪数据包流向 (可选高级操作)</h4>
+                <p>使用像 <code>tcpdump</code> 这样的工具可以在 Node 或 Pod 内部捕获网络数据包，从而直接观察流量如何被 Service 转发。这对于理解 DNAT 的实际发生和调试复杂网络问题非常有用。</p>
+                <div class="code-block command">
+# 1. 为了方便，在一个可以访问集群网络的终端中启动一个带有网络工具的调试 Pod
+# nicolaka/netshoot 镜像包含了 tcpdump, tshark, netstat 等多种网络工具
+kubectl run net-debug --image=nicolaka/netshoot --rm -it --restart=Never -- sh
+
+# --- 以下命令在 net-debug Pod 的 Shell 中执行 ---
+
+# 2. 获取 web-demo Service 的 ClusterIP
+SERVICE_IP=$(kubectl get svc web-demo -n default -o jsonpath='{.spec.clusterIP}')
+echo "Service IP: $SERVICE_IP"
+
+# 3. 获取 web-demo Service 的后端 Pod IP 地址 (选取一个即可)
+POD_IP=$(kubectl get endpoints web-demo -n default -o jsonpath='{.subsets[0].addresses[0].ip}')
+echo "One of the Pod IPs: $POD_IP"
+
+# 4. 在 net-debug Pod 的一个终端窗口中，启动 tcpdump 监听发往 Service ClusterIP 的流量
+# 我们监听 'any' 接口以捕获所有进出 Pod 的流量，并通过 'host $SERVICE_IP' 筛选
+echo "Starting tcpdump to monitor traffic to Service IP ($SERVICE_IP)..."
+echo "In another terminal, try: curl http://$SERVICE_IP"
+tcpdump -nn -i any host $SERVICE_IP and tcp port 80
+
+# (保持此 tcpdump 运行)
+
+# 5. (可选) 在 net-debug Pod 的另一个终端窗口 (或通过 kubectl exec 进入同一个 Pod 的另一个 shell)
+# 监听从 net-debug Pod 发往特定后端 Pod IP 的流量
+# echo "Starting another tcpdump to monitor traffic to a backend Pod IP ($POD_IP)..."
+# tcpdump -nn -i any host $POD_IP and tcp port 80
+
+# 6. 从 net-debug Pod 内部或集群内其他位置，向 web-demo Service 发起请求
+# 例如，在 net-debug Pod 的另一个 shell 中执行:
+# curl http://$SERVICE_IP
+# 或者多次执行: for i in $(seq 1 5); do curl -s http://$SERVICE_IP | grep "Pod:"; done
+
+# 7. 观察 tcpdump 的输出。您应该能看到：
+#   - 初始请求从客户端 (net-debug Pod 自身) 发往 Service ClusterIP。
+#   - 在 Node 层面发生 DNAT 后 (这在 Pod 内部的 tcpdump 可能不直接可见，除非 Pod 也在 Node 的主网络命名空间或能看到外部流量)，
+#     但如果从 Pod 访问 Service，tcpdump 捕获到的是 Pod 发往 ClusterIP 的包，以及从 ClusterIP (伪装的源) 返回的包。
+#     如果您在 Node 上运行 tcpdump，则可以看到DNAT到Pod IP的过程。
+
+# 8. 完成后，停止 tcpdump (Ctrl+C)，然后退出 net-debug Pod 的 shell
+exit
+# --- net-debug Pod Shell 命令结束 ---
+                </div>
+                
+                <div class="code-block output">
+# 预期 tcpdump 输出示例 (当从 net-debug Pod 访问 Service IP 时):
+# (IP 地址和端口会根据您的环境变化)
+# tcpdump -nn -i any host $SERVICE_IP and tcp port 80
+# listening on any, link-type LINUX_SLL (Linux cooked v1), capture size 262144 bytes
+
+# 请求发出 (net-debug Pod IP -> Service ClusterIP)
+# 10:12:34.567890 IP 10.244.0.5.43210 > 10.96.1.10.80: Flags [S], seq 1000, win 64240, options [mss 1460,sackOK,TS val 123 ecr 0,nop,wscale 7], length 0
+
+# 响应收到 (Service ClusterIP -> net-debug Pod IP) - 注意源 IP 仍然是 Service IP
+# 10:12:34.567990 IP 10.96.1.10.80 > 10.244.0.5.43210: Flags [S.], seq 2000, ack 1001, win 65160, options [mss 1460,sackOK,TS val 456 ecr 123,nop,wscale 7], length 0
+# ...后续的 HTTP 流量...
+                </div>
+                <p class="analysis"><strong>结果分析：</strong></p>
+                <ul>
+                    <li>当从集群内的 Pod (如 <code>net-debug</code>) 访问 Service ClusterIP 时，<code>tcpdump</code> 会显示该 Pod 发往 ClusterIP 的数据包。</li>
+                    <li>响应数据包的源 IP 地址将是 Service ClusterIP，而不是后端 Pod 的实际 IP。这是因为连接跟踪 (conntrack) 机制在数据包返回客户端 Pod 之前，会执行反向 NAT，将源 IP 从后端 Pod IP 修改回 Service ClusterIP。这使得客户端 Pod 始终认为它在与 Service IP 通信。</li>
+                    <li>如果在 Node 级别（而不是在普通 Pod 内）运行 <code>tcpdump</code> 并监听适当的接口（如 CNI 创建的网桥或 <code>veth</code> 对），您将能够更清晰地观察到 DNAT 过程：入站到 ClusterIP 的数据包，以及出站到选定后端 Pod IP 的数据包。</li>
+                </ul>
+                <p>使用 <code>tcpdump</code> 进行跟踪是网络排障的高级技巧，它可以提供关于数据包在网络中实际路径的宝贵信息。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 3：探索 ClusterIP Service 的 DNS 解析</h3>
+                <p>Kubernetes 集群内置了DNS服务（通常是 CoreDNS），为 Service 提供自动的域名解析。这使得应用可以通过 Service 名称而非 IP 地址相互发现和通信。本实验将探索这一机制的工作原理，以及普通 Service 和 Headless Service 在 DNS 解析行为上的区别。</p>
+                
+                <h4>步骤 1：检查 DNS 解析</h4>
+                <p>首先，我们将创建一个带有 DNS 工具的调试 Pod，用于检查 Service 的 DNS 解析情况，并查看集群的 DNS 配置。</p>
+                <div class="code-block command">
+# 1. 创建一个带有 DNS 工具的临时调试 Pod
+# tutum/dnsutils 镜像包含 nslookup, dig 等 DNS 查询工具
+# 通过 --rm 标志指定容器退出后自动删除 Pod
+kubectl run -it --rm dns-debug --image=tutum/dnsutils --restart=Never -- sh
+
+# --- 以下命令在 dns-debug Pod 的 Shell 中执行 ---
+
+# 2. 检查 Pod 内部的 DNS 配置
+echo "=== /etc/resolv.conf (Kubernetes 自动配置的 DNS 设置) ==="
+cat /etc/resolv.conf
+
+# 3. 简单方式查询 Service (仅使用服务名)
+# Kubernetes 会自动搜索当前命名空间下的 Service
+echo "\n=== 简单方式查询 web-demo Service ==="
+nslookup web-demo
+
+# 4. 使用完全限定域名 (FQDN) 查询 Service
+# 格式: <service-name>.<namespace>.svc.cluster.local
+echo "\n=== 使用 FQDN 查询 web-demo Service ==="
+nslookup web-demo.default.svc.cluster.local
+
+# 5. 查询 Service 的 A 记录类型
+# 这将显示与 Service 关联的 IP 地址 (即 ClusterIP)
+echo "\n=== 查询 Service 的 A 记录 (使用 dig) ==="
+dig +short web-demo.default.svc.cluster.local A
+
+# 6. 查询 Service 的 SRV 记录类型
+# SRV 记录包含服务端口信息，适用于命名端口
+echo "\n=== 查询 Service 的 SRV 记录 (对命名端口) ==="
+dig +short web-demo.default.svc.cluster.local SRV
+
+# 7. 退出 dns-debug Pod 的 shell
+exit
+# --- dns-debug Pod Shell 命令结束 ---
+
+# 8. (在主终端中执行) 检查集群的 CoreDNS 配置
+# CoreDNS 是 Kubernetes 集群中默认的 DNS 服务
+kubectl get configmap -n kube-system coredns -o yaml
+                </div>
+                
+                <div class="code-block output">
+# 预期输出示例：
+
+# cat /etc/resolv.conf
+=== /etc/resolv.conf (Kubernetes 自动配置的 DNS 设置) ===
+nameserver 10.96.0.10       # 集群 DNS 服务的 IP 地址 (一般是 CoreDNS 的 Service IP)
+search default.svc.cluster.local svc.cluster.local cluster.local  # DNS 搜索域
+options ndots:5             # 名称解析策略配置
+
+# nslookup web-demo
+=== 简单方式查询 web-demo Service ===
+Server:     10.96.0.10      # DNS 服务器 IP
+Address:    10.96.0.10#53   # DNS 服务器端口
+
+Name:   web-demo.default.svc.cluster.local  # 自动补全为 FQDN
+Address: 10.96.1.10         # Service 的 ClusterIP
+
+# nslookup web-demo.default.svc.cluster.local
+=== 使用 FQDN 查询 web-demo Service ===
+Server:     10.96.0.10
+Address:    10.96.0.10#53
+
+Name:   web-demo.default.svc.cluster.local
+Address: 10.96.1.10         # 与简单查询结果相同
+
+# dig +short web-demo.default.svc.cluster.local A
+=== 查询 Service 的 A 记录 (使用 dig) ===
+10.96.1.10                  # 仅显示 IP 地址
+
+# dig +short web-demo.default.svc.cluster.local SRV
+=== 查询 Service 的 SRV 记录 (对命名端口) ===
+# 如果 Service 没有命名端口，则不会有输出
+# 如果有命名端口，输出格式为: <权重> <优先级> <端口> <目标主机>
+# 例如: 10 100 80 web-demo.default.svc.cluster.local.
+
+# kubectl get configmap -n kube-system coredns -o yaml (部分输出)
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {  # Kubernetes DNS 插件配置
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf {    # 外部 DNS 请求转发配置
+           max_concurrent 1000
+        }
+        cache 30                        # DNS 缓存时间
+        loop
+        reload
+        loadbalance                     # 启用负载均衡
+    }
+kind: ConfigMap
+                </div>
+                <p class="analysis"><strong>结果分析：</strong></p>
+                <ul>
+                    <li><strong>DNS 配置</strong>: Kubernetes 会自动为每个 Pod 配置 <code>/etc/resolv.conf</code>，将 DNS 请求指向集群内的 DNS 服务 (通常是 CoreDNS)。<code>search</code> 域列表使得 Pod 可以使用短名称查询同一命名空间或集群内的服务。</li>
+                    <li><strong>Service DNS 格式</strong>: 每个 Service 都有一个 DNS 名称，格式为 <code>&lt;service-name&gt;.&lt;namespace&gt;.svc.cluster.local</code>。简单查询 <code>web-demo</code> 时，由于 <code>search</code> 域设置，自动补全为完整域名。</li>
+                    <li><strong>常规 ClusterIP Service 的 DNS 解析</strong>: 
+                        <ul>
+                            <li>对普通 Service 的 DNS 查询会返回一个 A 记录，对应该 Service 的 ClusterIP</li>
+                            <li>这意味着当应用通过 DNS 名称访问服务时，实际上是访问了 Service 的 ClusterIP</li>
+                            <li>负载均衡不是由 DNS 服务完成的，而是由 kube-proxy 在网络层 (通过 iptables/IPVS) 完成的</li>
+                        </ul>
+                    </li>
+                    <li><strong>CoreDNS 配置</strong>: <code>kubernetes</code> 插件处理 <code>cluster.local</code> 域的服务发现，<code>loadbalance</code> 指令使 CoreDNS 在 DNS 应答中随机排序多个 A/AAAA 记录 (主要用于 Headless Service)。</li>
+                </ul>
+                <p>注意：从 DNS 解析结果来看，普通的 ClusterIP Service 会解析到单个 IP (Service 的虚拟 IP)，这与传统 DNS 负载均衡方式不同。负载均衡由 kube-proxy 在转发层面完成，这样可以实现更细粒度的负载均衡和连接追踪。</p>
+
+                <h4>步骤 2：创建和测试 Headless Service</h4>
+                <p>Headless Service 是一种特殊的 Service，它没有 ClusterIP (<code>clusterIP: None</code>)。DNS 服务器会直接返回所有后端 Pod 的 IP 地址，而不是一个虚拟 IP。这种设计适用于需要客户端自行选择后端的场景，如有状态应用。</p>
+                <div class="code-block command">
+# 1. 创建一个 Headless Service 的 YAML 定义
+# 它指向与前面示例相同的 backend Pod (app=web-demo)
+cat > web-demo-headless.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-demo-headless    # Service 名称
+spec:
+  selector:
+    app: web-demo            # 与前面的常规 Service 选择相同的 Pod
+  ports:
+  - port: 80                 # Service 端口
+    targetPort: 80           # Pod 端口
+  clusterIP: None            # 关键点：指定为 None 使其成为 Headless Service
+EOF
+
+# 2. 应用 YAML 创建 Headless Service
+kubectl apply -f web-demo-headless.yaml
+
+# 3. 查看创建的 Headless Service
+kubectl get service web-demo-headless
+# 注意 ClusterIP 列显示为 "None"
+                </div>
+                
+                <div class="code-block output">
+# kubectl apply -f web-demo-headless.yaml
+service/web-demo-headless created
+
+# kubectl get service web-demo-headless
+NAME                TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+web-demo-headless   ClusterIP   None         <none>        80/TCP    10s
+                </div>
+
+                <h4>步骤 3：测试 Headless Service 的 DNS 解析</h4>
+                <p>现在让我们观察 Headless Service 的 DNS 解析行为，并与常规 Service 进行对比。</p>
+                <div class="code-block command">
+# 1. 创建另一个 DNS 调试 Pod
+kubectl run -it --rm dns-test --image=tutum/dnsutils --restart=Never -- sh
+
+# --- 以下命令在 dns-test Pod 的 Shell 中执行 ---
+
+# 2. 查询常规 Service 的 DNS 解析
+echo "=== 查询常规 Service (web-demo) ==="
+nslookup web-demo
+
+# 3. 查询 Headless Service 的 DNS 解析
+# 注意观察返回的 IP 地址 - 应该是后端 Pod 的 IP 而不是 ClusterIP
+echo "\n=== 查询 Headless Service (web-demo-headless) ==="
+nslookup web-demo-headless
+
+# 4. 使用 dig 工具查看更详细的 DNS 响应
+echo "\n=== 使用 dig 查询 Headless Service (更详细) ==="
+dig web-demo-headless.default.svc.cluster.local
+
+# 5. 验证返回的 IP 是否确实是后端 Pod 的 IP
+echo "\n=== 验证返回的 IP 与 Pod IP 对应关系 ==="
+echo "Pod IPs (通过 kubectl 获取):"
+kubectl get pods -l app=web-demo -o wide | grep -v NAME
+echo "\nHeadless Service 返回的 IP (通过 dig 获取):"
+dig +short web-demo-headless.default.svc.cluster.local
+
+# 6. 尝试直接连接某个后端 Pod IP (从 Headless DNS 结果中选取一个)
+echo "\n=== 尝试直接连接某个后端 Pod (选取第一个 IP) ==="
+POD_IP=$(dig +short web-demo-headless.default.svc.cluster.local | head -1)
+echo "使用 Pod IP: $POD_IP"
+wget -q -O- $POD_IP:80 | grep -o "<h1>Pod.*</h1>"
+
+# 7. 退出 dns-test Pod
+exit
+# --- dns-test Pod Shell 命令结束 ---
+                </div>
+                
+                <div class="code-block output">
+# 预期输出示例：
+
+# 查询常规 Service
+=== 查询常规 Service (web-demo) ===
+Server:     10.96.0.10
+Address:    10.96.0.10#53
+
+Name:   web-demo.default.svc.cluster.local
+Address: 10.96.1.10      # 单个 ClusterIP
+
+# 查询 Headless Service
+=== 查询 Headless Service (web-demo-headless) ===
+Server:     10.96.0.10
+Address:    10.96.0.10#53
+
+Name:   web-demo-headless.default.svc.cluster.local
+Address: 10.244.1.2      # Pod 1 的 IP
+Name:   web-demo-headless.default.svc.cluster.local
+Address: 10.244.2.3      # Pod 2 的 IP
+Name:   web-demo-headless.default.svc.cluster.local
+Address: 10.244.3.4      # Pod 3 的 IP
+
+# dig 详细输出 (部分内容)
+=== 使用 dig 查询 Headless Service (更详细) ===
+;; ANSWER SECTION:
+web-demo-headless.default.svc.cluster.local. 30 IN A 10.244.1.2
+web-demo-headless.default.svc.cluster.local. 30 IN A 10.244.2.3
+web-demo-headless.default.svc.cluster.local. 30 IN A 10.244.3.4
+
+# 验证 Pod IP
+=== 验证返回的 IP 与 Pod IP 对应关系 ===
+Pod IPs (通过 kubectl 获取):
+web-demo-5dcfc76b87-abcde   1/1     Running   0     3h   10.244.1.2   node1   <none>
+web-demo-5dcfc76b87-fghij   1/1     Running   0     3h   10.244.2.3   node2   <none>
+web-demo-5dcfc76b87-klmno   1/1     Running   0     3h   10.244.3.4   node3   <none>
+
+Headless Service 返回的 IP (通过 dig 获取):
+10.244.1.2
+10.244.2.3
+10.244.3.4
+
+# 直接访问 Pod
+=== 尝试直接连接某个后端 Pod (选取第一个 IP) ===
+使用 Pod IP: 10.244.1.2
+<h1>Pod: web-demo-5dcfc76b87-abcde</h1>
+                </div>
+                <p class="analysis"><strong>结果分析：</strong></p>
+                <ul>
+                    <li><strong>常规 Service vs Headless Service</strong>:
+                        <ul>
+                            <li>常规 Service: DNS 查询返回单个 A 记录，指向 Service 的 ClusterIP。负载均衡在网络层由 kube-proxy 处理。</li>
+                            <li>Headless Service: DNS 查询返回多个 A 记录，每个都指向一个后端 Pod 的实际 IP 地址。负载均衡责任转移到了客户端。</li>
+                        </ul>
+                    </li>
+                    <li><strong>客户端负载均衡</strong>: 使用 Headless Service 时，DNS 查询结果会包含所有健康的 Pod IP，并且通常会以随机顺序返回。客户端应用程序需要自行选择要连接的 Pod IP，实现自己的负载均衡逻辑。</li>
+                    <li><strong>直接 Pod 通信</strong>: 验证结果显示，我们可以使用从 Headless Service DNS 查询获得的 IP 地址直接连接到 Pod，绕过了 kube-proxy 的 NAT 和负载均衡层。</li>
+                    <li><strong>应用场景</strong>: Headless Service 特别适用于：
+                        <ul>
+                            <li>有状态应用程序 (如数据库)，客户端需要连接到特定的实例</li>
+                            <li>实现自定义负载均衡策略，如一致性哈希</li>
+                            <li>需要直接 Pod 到 Pod 通信且希望使用 DNS 发现的场景</li>
+                            <li>StatefulSet 控制器通常与 Headless Service 配合使用，为每个 Pod 提供稳定的网络标识</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>Headless Service 的这种 DNS 解析行为提供了更大的灵活性，但也需要客户端应用程序具备更复杂的逻辑来处理多个后端地址。根据您的应用需求，选择合适的 Service 类型至关重要。</p>
+                
+                <h4>步骤 4：清理资源</h4>
+                <div class="code-block command">
+# 删除创建的 Headless Service
+kubectl delete service web-demo-headless
+
+# 可选：如果您想清理所有测试资源
+# kubectl delete service web-demo
+# kubectl delete deployment web-demo
+                </div>
+                
+                <div class="code-block output">
+service "web-demo-headless" deleted
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>ClusterIP Service 的高级配置</h2>
+            
+            <h3>1. 多端口 Service</h3>
+            <p>ClusterIP Service 可以暴露多个端口，每个端口可以有不同的名称和目标端口：</p>
+            <div class="code-block command">
+# 创建多端口 Service
+cat > multi-port-service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: multi-port-service
+spec:
+  selector:
+    app: my-app
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  - name: https
+    port: 443
+    targetPort: 8443
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+EOF
+
+kubectl apply -f multi-port-service.yaml
+            </div>
+            
+            <h3>2. 使用命名端口</h3>
+            <p>可以使用 Pod 中定义的命名端口，增强可维护性：</p>
+            <div class="code-block command">
+# 创建 Pod 定义
+cat > webapp-with-named-ports.yaml << 'EOF'
+# Pod 定义中的命名端口
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp
+  labels:
+    app: webapp
+spec:
+  containers:
+  - name: webapp
+    image: nginx
+    ports:
+    - name: http
+      containerPort: 80
+    - name: https
+      containerPort: 443
+EOF
+
+# 创建 Service 定义
+cat > webapp-service.yaml << 'EOF'
+# Service 使用命名端口
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+spec:
+  selector:
+    app: webapp
+  ports:
+  - name: http
+    port: 80
+    targetPort: http  # 引用命名端口
+  - name: https
+    port: 443
+    targetPort: https  # 引用命名端口
+EOF
+
+# 应用配置
+kubectl apply -f webapp-with-named-ports.yaml
+kubectl apply -f webapp-service.yaml
+            </div>
+            
+            <h3>3. 会话亲和性</h3>
+            <p>可以配置基于客户端 IP 的会话亲和性，使来自同一客户端的请求始终发送到同一个 Pod：</p>
+            <div class="code-block command">
+# 创建具有会话亲和性的 Service
+cat > webapp-sticky.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-sticky
+spec:
+  selector:
+    app: webapp
+  ports:
+  - port: 80
+    targetPort: 80
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3小时
+EOF
+
+kubectl apply -f webapp-sticky.yaml
+            </div>
+            
+            <h3>4. 自定义 ClusterIP</h3>
+            <p>可以在创建 Service 时指定 ClusterIP，但必须是 Service CIDR 范围内的未使用 IP：</p>
+            <div class="code-block command">
+# 创建具有自定义 IP 的 Service
+cat > custom-ip-service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: custom-ip-service
+spec:
+  selector:
+    app: my-app
+  ports:
+  - port: 80
+    targetPort: 8080
+  clusterIP: 10.96.0.100  # 自定义 ClusterIP
+EOF
+
+kubectl apply -f custom-ip-service.yaml
+            </div>
+            <p class="warning">注意：手动指定 ClusterIP 可能导致 IP 冲突，除非有特殊需求，否则建议让 Kubernetes 自动分配。</p>
+        </section>
+
+        <section>
+            <h2>ClusterIP Service 的常见问题和排障</h2>
+            
+            <div class="troubleshooting-card">
+                <h3>问题 1：Service 无法访问</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>标签选择器不匹配：</strong>检查 Service 的 selector 是否与 Pod 的标签匹配</li>
+                    <li><strong>Pod 未就绪：</strong>检查 Pod 的就绪状态和就绪探针</li>
+                    <li><strong>端口配置错误：</strong>确认 Service 的 targetPort 与 Pod 的 containerPort 一致</li>
+                    <li><strong>网络策略限制：</strong>检查是否有 NetworkPolicy 阻止了流量</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block command">
+# 检查 Service 详情
+kubectl describe service <service-name>
+
+# 检查 Endpoints
+kubectl get endpoints <service-name>
+
+# 检查 Pod 标签
+kubectl get pods --show-labels
+
+# 从另一个 Pod 中测试连接
+kubectl run -it --rm debug --image=busybox --restart=Never -- wget -T 3 -O- <service-name>
+
+# 检查 Pod 日志
+kubectl logs <pod-name>
+                </div>
+                
+                <div class="code-block output">
+# describe service 输出示例
+Name:              web-demo
+Namespace:         default
+Labels:            <none>
+Annotations:       <none>
+Selector:          app=web-demo
+Type:              ClusterIP
+IP Family Policy:  SingleStack
+IP Families:       IPv4
+IP:                10.96.1.10
+IPs:               10.96.1.10
+Port:              <unset>  80/TCP
+TargetPort:        80/TCP
+Endpoints:         10.244.1.2:80,10.244.2.3:80,10.244.3.4:80 # 这里会显示后端 Pod 的 IP 和端口
+Session Affinity:  None
+Events:            <none>
+
+# endpoints 查询示例
+NAME       ENDPOINTS                                      AGE
+web-demo   10.244.1.2:80,10.244.2.3:80,10.244.3.4:80     10m
+
+# describe 输出示例
+Name:         web-demo
+Namespace:    default
+Labels:       <none>
+Annotations:  endpoints.kubernetes.io/last-change-trigger-time: 2023-10-27T12:34:56Z
+Subsets:
+  Addresses:          10.244.1.2,10.244.2.3,10.244.3.4
+  NotReadyAddresses:  <none>
+  Ports:
+    Name  Port  Protocol
+    ----  ----  --------
+    http  80    TCP
+Events:  <none>
+
+# endpointslices 输出示例
+NAME              ADDRESSTYPE   PORTS   ENDPOINTS                                  AGE
+web-demo-6g9k5    IPv4          80      10.244.1.2,10.244.2.3,10.244.3.4           10m
+                </div>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>问题 2：负载均衡不均匀</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>会话亲和性：</strong>检查是否启用了 sessionAffinity: ClientIP</li>
+                    <li><strong>客户端缓存：</strong>某些客户端可能缓存了 DNS 解析结果</li>
+                    <li><strong>连接复用：</strong>HTTP 客户端可能复用了 TCP 连接</li>
+                    <li><strong>Pod 就绪时间不同：</strong>某些 Pod 可能比其他 Pod 更早就绪</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block command">
+# 检查 Service 配置
+kubectl get service <service-name> -o yaml | grep sessionAffinity
+
+# 测试负载均衡
+for i in $(seq 100); do
+  kubectl run -it --rm debug-$i --image=busybox --restart=Never -- wget -q -O- <service-name> | grep "Pod"
+done | sort | uniq -c
+                </div>
+                
+                <div class="code-block output">
+# sessionAffinity 检查示例
+sessionAffinity: None
+
+# 负载均衡测试结果示例
+  32 <h1>Pod web-demo-66b6c48dd5-ab3p8</h1>
+  36 <h1>Pod web-demo-66b6c48dd5-cd7f9</h1>
+  32 <h1>Pod web-demo-66b6c48dd5-xjkl2</h1>
+                </div>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>问题 3：DNS 解析问题</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>CoreDNS 问题：</strong>检查 CoreDNS Pod 是否正常运行</li>
+                    <li><strong>DNS 配置错误：</strong>检查 Pod 的 DNS 配置</li>
+                    <li><strong>网络策略限制：</strong>确保允许到 CoreDNS 的流量</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block command">
+# 检查 CoreDNS Pod 状态
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+# 检查 CoreDNS 日志
+kubectl logs -n kube-system -l k8s-app=kube-dns
+
+# 在 Pod 中测试 DNS 解析
+kubectl run -it --rm dns-debug --image=tutum/dnsutils --restart=Never -- nslookup <service-name>
+
+# 检查 Pod 的 DNS 配置
+kubectl run -it --rm dns-debug --image=tutum/dnsutils --restart=Never -- cat /etc/resolv.conf
+                </div>
+                
+                <div class="code-block output">
+# CoreDNS Pod 状态示例
+NAME                       READY   STATUS    RESTARTS   AGE
+coredns-558bd4d5db-d4rpz   1/1     Running   0          2d
+coredns-558bd4d5db-xz7m5   1/1     Running   0          2d
+
+# DNS 配置示例
+search default.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>最佳实践</h2>
+            <ul>
+                <li><strong>使用有意义的名称：</strong>为 Service 和端口使用描述性名称</li>
+                <li><strong>命名端口：</strong>在多端口 Service 中，始终为端口指定名称</li>
+                <li><strong>健康检查：</strong>配置适当的就绪探针，确保流量只发送到健康的 Pod</li>
+                <li><strong>资源标签：</strong>使用一致的标签策略，便于管理和筛选</li>
+                <li><strong>网络策略：</strong>使用 NetworkPolicy 限制对 Service 的访问</li>
+                <li><strong>避免自定义 ClusterIP：</strong>除非有特殊需求，否则让 Kubernetes 自动分配 ClusterIP</li>
+                <li><strong>监控：</strong>监控 Service 的连接数、延迟和错误率</li>
+            </ul>
+        </section>
+
+        <section>
+            <p>ClusterIP Service 是 Kubernetes 服务发现和负载均衡的基础，理解其工作原理对于构建可靠的微服务架构至关重要。</p>
+            <div class="navigation-buttons">
+                <a href="service-network.html" class="button">返回 Service 网络</a>
+                <a href="service-nodeport.html" class="button">了解 NodePort Service</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html> 

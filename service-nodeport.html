@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NodePort Service | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>NodePort Service 详解</h2>
+            <p>NodePort Service 是 Kubernetes 中允许从集群外部访问集群内部服务的一种基本方式。它在所有节点上打开一个特定端口，将外部流量路由到集群内的目标 Pod。本文将深入探讨 NodePort Service 的工作原理、使用场景和实现细节。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/nodeport-service.svg" class="diagram">
+                    NodePort Service 示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>NodePort Service 基础</h2>
+            <p>NodePort Service 建立在 ClusterIP Service 之上，具有以下特点：</p>
+            <ul>
+                <li>分配一个集群内部的虚拟 IP 地址（ClusterIP）</li>
+                <li>在每个节点上打开一个静态端口（NodePort）</li>
+                <li>外部流量可以通过 <code>&lt;NodeIP&gt;:&lt;NodePort&gt;</code> 访问服务</li>
+                <li>默认 NodePort 范围为 30000-32767（可配置）</li>
+                <li>无需额外的外部负载均衡器</li>
+            </ul>
+            
+            <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80          # 集群内部访问的端口
+    targetPort: 8080  # Pod 上的目标端口
+    nodePort: 30080   # 节点上开放的端口（可选，不指定会自动分配）
+  type: NodePort
+            </div>
+        </section>
+
+        <section>
+            <h2>NodePort 实现机制</h2>
+            <p>NodePort Service 的实现涉及多个组件和网络层面的操作：</p>
+            
+            <h3>1. 端口分配和管理</h3>
+            <ul>
+                <li>kube-apiserver 负责分配 NodePort（从配置的范围内）</li>
+                <li>如果指定了 nodePort 字段，会使用指定的端口（如果可用）</li>
+                <li>分配的端口在所有节点上保持一致</li>
+                <li>端口信息存储在 etcd 中，确保不会重复分配</li>
+            </ul>
+            
+            <h3>2. 网络规则创建</h3>
+            <p>kube-proxy 在每个节点上配置网络规则，实现以下功能：</p>
+            <ol>
+                <li>监听分配的 NodePort 端口</li>
+                <li>捕获发往该端口的流量</li>
+                <li>将流量转发到对应的 ClusterIP Service</li>
+                <li>后续路由过程与 ClusterIP Service 相同</li>
+            </ol>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">iptables 模式</div>
+                    <div class="tab">IPVS 模式</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>iptables 模式实现</h3>
+                        <p>在 iptables 模式下，kube-proxy 为 NodePort Service 创建以下规则：</p>
+                        
+                        <div class="code-block">
+# 1. 在 PREROUTING 链中捕获发往 NodePort 的流量
+-A PREROUTING -p tcp -m tcp --dport 30080 -j KUBE-NODEPORTS
+
+# 2. 在 KUBE-NODEPORTS 链中将流量定向到特定的 Service
+-A KUBE-NODEPORTS -p tcp -m tcp --dport 30080 -j KUBE-SVC-XXX
+
+# 3. KUBE-SVC-XXX 链中的规则（与 ClusterIP Service 相同）
+-A KUBE-SVC-XXX -m statistic --mode random --probability 0.33333 -j KUBE-SEP-1
+-A KUBE-SVC-XXX -m statistic --mode random --probability 0.50000 -j KUBE-SEP-2
+-A KUBE-SVC-XXX -j KUBE-SEP-3
+
+# 4. KUBE-SEP-X 链中的规则（与 ClusterIP Service 相同）
+-A KUBE-SEP-1 -p tcp -j DNAT --to-destination 10.244.1.2:8080
+-A KUBE-SEP-2 -p tcp -j DNAT --to-destination 10.244.1.3:8080
+-A KUBE-SEP-3 -p tcp -j DNAT --to-destination 10.244.2.2:8080
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>IPVS 模式实现</h3>
+                        <p>在 IPVS 模式下，kube-proxy 使用 IPVS 规则创建虚拟服务器：</p>
+                        
+                        <div class="code-block">
+# 为 NodePort 创建虚拟服务器
+$ ipvsadm -ln
+IP Virtual Server version 1.2.1 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  192.168.1.1:30080 rr
+  -> 10.244.1.2:8080              Masq    1      0          0         
+  -> 10.244.1.3:8080              Masq    1      0          0         
+  -> 10.244.2.2:8080              Masq    1      0          0         
+                        </div>
+                        
+                        <p>IPVS 为每个节点 IP 创建虚拟服务器，并与后端 Pod 建立关联。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>NodePort Service 的数据流向</h2>
+            <p>当外部客户端访问 NodePort Service 时，数据包的流向如下：</p>
+            
+            <div class="diagram-container">
+                <img src="svg/nodeport-packet-flow.svg" alt="NodePort 数据包流向" class="diagram">
+            </div>
+            
+            <ol>
+                <li><strong>请求到达节点</strong>：外部客户端向节点 IP 的 NodePort 端口发送请求</li>
+                <li><strong>捕获流量</strong>：节点上的 iptables/IPVS 规则捕获发往 NodePort 的流量</li>
+                <li><strong>DNAT 转换</strong>：执行 DNAT，将目标地址从 <code>&lt;NodeIP&gt;:&lt;NodePort&gt;</code> 修改为选中的 Pod IP:Port</li>
+                <li><strong>路由到 Pod</strong>：
+                    <ul>
+                        <li>如果 Pod 在当前节点，直接转发到本地 Pod</li>
+                        <li>如果 Pod 在其他节点，通过容器网络路由到目标节点和 Pod</li>
+                    </ul>
+                </li>
+                <li><strong>处理请求</strong>：Pod 处理请求并生成响应</li>
+                <li><strong>响应返回</strong>：响应数据包通过 conntrack 自动进行反向 NAT，确保返回到原始客户端</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>动手实验：深入理解 NodePort Service</h2>
+            
+            <div class="experiment-card">
+                <h3>实验 1：创建和测试 NodePort Service</h3>
+                
+                <h4>步骤 1：部署测试应用</h4>
+                <div class="code-block">
+# 创建一个简单的 Web 应用
+kubectl create deployment nodeport-demo --image=nginx:alpine --replicas=3
+kubectl label deployment nodeport-demo app=nodeport-demo
+
+# 自定义 Nginx 页面，显示 Pod 信息
+for pod in $(kubectl get pods -l app=nodeport-demo -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl exec -it $pod -- sh -c 'echo "<span class=\"html-tag\">&lt;h1&gt;</span><span class=\"html-content\">NodePort Demo</span><span class=\"html-tag\">&lt;/h1&gt;</span><span class=\"html-tag\">&lt;p&gt;</span><span class=\"html-content\">Pod Name: $(hostname)</span><span class=\"html-tag\">&lt;/p&gt;</span><span class=\"html-tag\">&lt;p&gt;</span><span class=\"html-content\">Pod IP: $(hostname -i)</span><span class=\"html-tag\">&lt;/p&gt;</span>" > /usr/share/nginx/html/index.html'
+done
+                </div>
+                
+                <h4>步骤 2：创建 NodePort Service</h4>
+                <div class="code-block command">
+# 创建 NodePort Service
+cat > nodeport-service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodeport-demo
+spec:
+  selector:
+    app: nodeport-demo
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+  type: NodePort
+EOF
+
+# 应用配置
+kubectl apply -f nodeport-service.yaml
+
+# 查看创建的 Service
+kubectl get service nodeport-demo
+                </div>
+                
+                <h4>步骤 3：测试 NodePort 服务</h4>
+                <div class="code-block">
+# 获取节点 IP 地址
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+# 通过 NodePort 访问服务
+curl http://$NODE_IP:30080
+
+# 多次访问，观察负载均衡效果
+for i in {1..10}; do
+  curl -s http://$NODE_IP:30080 | grep "Pod Name"
+  sleep 1
+done
+
+# 检查所有节点的 IP，验证所有节点上的 NodePort 都可访问
+kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 2：分析 NodePort Service 的网络规则</h3>
+                
+                <h4>步骤 1：检查 iptables 规则</h4>
+                <div class="code-block">
+# 在集群节点上运行（需要 SSH 到节点或使用特权 Pod）
+kubectl debug node/$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -it --image=ubuntu
+
+# 在节点调试容器中执行
+apt-get update && apt-get install -y iptables
+
+# 查看 NodePort 相关的 iptables 规则
+iptables-save | grep 30080
+
+# 查看 KUBE-NODEPORTS 链
+iptables -t nat -L KUBE-NODEPORTS -n | grep 30080
+
+# 找到相关的 KUBE-SVC-XXX 链
+SVC_CHAIN=$(iptables-save | grep 30080 | grep KUBE-SVC | head -1 | awk '{print $2}')
+iptables -t nat -L $SVC_CHAIN -n
+
+# 退出节点调试容器
+exit
+                </div>
+                
+                <h4>步骤 2：检查 IPVS 规则（如果启用了 IPVS 模式）</h4>
+                <div class="code-block">
+# 在集群节点上运行（需要 SSH 到节点或使用特权 Pod）
+kubectl debug node/$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -it --image=ubuntu
+
+# 在节点调试容器中执行
+apt-get update && apt-get install -y ipvsadm
+
+# 查看 IPVS 规则
+ipvsadm -ln | grep -A 3 30080
+
+# 退出节点调试容器
+exit
+                </div>
+                
+                <h4>步骤 3：跟踪 NodePort 流量</h4>
+                <div class="code-block">
+# 在节点上运行（需要 SSH 到节点或使用特权 Pod）
+kubectl debug node/$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -it --image=nicolaka/netshoot
+
+# 在节点调试容器中执行
+# 使用 tcpdump 监控 NodePort 流量
+tcpdump -nn -i any port 30080
+
+# 在另一个终端中向 NodePort 发送请求
+# 观察 tcpdump 的输出
+
+# 退出节点调试容器
+exit
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 3：使用源 IP 保留功能</h3>
+                
+                <h4>步骤 1：部署源 IP 测试应用</h4>
+                <div class="code-block">
+cat << 'EOF' | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: source-ip-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: source-ip-app
+  template:
+    metadata:
+      labels:
+        app: source-ip-app
+    spec:
+      containers:
+      - name: source-ip-app
+        image: k8s.gcr.io/echoserver:1.10
+EOF
+                </div>
+                
+                <h4>步骤 2：创建不同 externalTrafficPolicy 的 NodePort Service</h4>
+                <div class="code-block">
+# 创建 Cluster 模式的 Service
+cat << 'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: source-ip-cluster
+spec:
+  selector:
+    app: source-ip-app
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30081
+  type: NodePort
+  externalTrafficPolicy: Cluster
+EOF
+
+# 创建 Local 模式的 Service
+cat << 'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: source-ip-local
+spec:
+  selector:
+    app: source-ip-app
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30082
+  type: NodePort
+  externalTrafficPolicy: Local
+EOF
+                </div>
+                
+                <h4>步骤 3：测试源 IP 保留效果</h4>
+                <div class="code-block">
+# 获取节点 IP
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+# 访问 Cluster 模式的 Service
+curl http://$NODE_IP:30081/
+
+# 访问 Local 模式的 Service
+curl http://$NODE_IP:30082/
+
+# 观察两种模式下返回的客户端 IP 地址是否不同
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>NodePort Service 的高级配置</h2>
+            
+            <h3>1. externalTrafficPolicy</h3>
+            <p>控制外部流量如何路由到 Pod：</p>
+            <ul>
+                <li><strong>Cluster（默认）</strong>：流量可以路由到任何节点上的 Pod，但会丢失客户端源 IP</li>
+                <li><strong>Local</strong>：流量只路由到当前节点上的 Pod，保留客户端源 IP，但如果节点上没有对应的 Pod，连接会失败</li>
+            </ul>
+            <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30080
+  type: NodePort
+  externalTrafficPolicy: Local  # 保留客户端源 IP
+            </div>
+            
+            <h3>2. 自定义端口范围</h3>
+            <p>集群管理员可以通过 kube-apiserver 的 <code>--service-node-port-range</code> 参数修改 NodePort 的分配范围：</p>
+            <div class="code-block">
+# 在 kube-apiserver 配置中设置
+--service-node-port-range=20000-40000
+            </div>
+            
+            <h3>3. 会话亲和性</h3>
+            <p>与 ClusterIP Service 一样，NodePort Service 也支持会话亲和性：</p>
+            <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: sticky-nodeport
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30080
+  type: NodePort
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3小时
+            </div>
+            
+            <h3>4. 健康检查</h3>
+            <p>在 Local 模式下，kube-proxy 会监视 Pod 的健康状态，只有健康的 Pod 才会接收流量：</p>
+            <div class="code-block">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+  labels:
+    app: MyApp
+spec:
+  containers:
+  - name: my-container
+    image: nginx
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 10
+            </div>
+        </section>
+
+        <section>
+            <h2>NodePort Service 的常见问题和排障</h2>
+            
+            <div class="troubleshooting-card">
+                <h3>问题 1：无法访问 NodePort</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>防火墙阻止：</strong>确保节点的防火墙允许 NodePort 端口的流量</li>
+                    <li><strong>网络策略限制：</strong>检查是否有 NetworkPolicy 阻止了流量</li>
+                    <li><strong>端口冲突：</strong>确保节点上没有其他服务占用了相同的端口</li>
+                    <li><strong>节点未就绪：</strong>检查节点状态是否正常</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block">
+# 检查 Service 详情
+kubectl describe service <service-name>
+
+# 检查节点端口是否被监听
+ss -tunlp | grep <nodeport>
+
+# 检查防火墙规则
+iptables -L -n | grep <nodeport>
+
+# 测试端口连接
+telnet <node-ip> <nodeport>
+                </div>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>问题 2：Local 模式下连接失败</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>节点上没有 Pod：</strong>在 externalTrafficPolicy: Local 模式下，如果当前节点上没有目标 Pod，连接会失败</li>
+                    <li><strong>Pod 未就绪：</strong>确保 Pod 通过了就绪检查</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block">
+# 检查节点上的 Pod 分布
+kubectl get pods -o wide
+
+# 确认 Pod 是否就绪
+kubectl get pods -o wide | grep <node-name>
+
+# 增加 Pod 副本数，确保每个节点上都有 Pod
+kubectl scale deployment <deployment-name> --replicas=<node-count>
+                </div>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>问题 3：源 IP 保留问题</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>未设置 Local 策略：</strong>使用 externalTrafficPolicy: Local 保留源 IP</li>
+                    <li><strong>中间代理：</strong>如果流量经过中间代理，源 IP 可能已经被替换</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block">
+# 检查 Service 配置
+kubectl get service <service-name> -o yaml | grep externalTrafficPolicy
+
+# 修改 externalTrafficPolicy
+kubectl patch svc <service-name> -p '{"spec":{"externalTrafficPolicy":"Local"}}'
+                </div>
+            </div>
+
+            <div class="troubleshooting-card">
+                <h3>问题 4：NodePort 连接间歇性超时</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>连接跟踪表溢出：</strong>大量连接可能导致连接跟踪表溢出</li>
+                    <li><strong>内核参数配置不当：</strong>TCP 超时和连接跟踪参数可能需要调整</li>
+                    <li><strong>节点负载过高：</strong>节点 CPU 或内存压力可能导致网络栈性能下降</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block command">
+# 检查连接跟踪表状态
+sysctl net.netfilter.nf_conntrack_count
+sysctl net.netfilter.nf_conntrack_max
+
+# 检查是否有连接跟踪丢包
+grep "nf_conntrack: table full" /var/log/kern.log
+
+# 增加连接跟踪表大小
+sysctl -w net.netfilter.nf_conntrack_max=1048576
+
+# 检查节点负载
+top
+vmstat 1
+                </div>
+            </div>
+            
+            <div class="troubleshooting-card">
+                <h3>问题 5：不同 Pod 负载不均衡</h3>
+                <h4>可能原因和解决方案：</h4>
+                <ul>
+                    <li><strong>会话亲和性：</strong>检查是否启用了 sessionAffinity: ClientIP</li>
+                    <li><strong>客户端缓存：</strong>客户端可能缓存了连接或 DNS 结果</li>
+                    <li><strong>Local 模式负载不均：</strong>在 externalTrafficPolicy: Local 模式下，流量只会发送到本地 Pod</li>
+                </ul>
+                <h4>排障命令：</h4>
+                <div class="code-block command">
+# 检查 Service 会话亲和性设置
+kubectl get service <service-name> -o jsonpath='{.spec.sessionAffinity}'
+
+# 查看 Pod 的请求负载（如果 Pod 有指标暴露）
+kubectl top pod
+
+# 确认 Pod 在节点上的分布
+kubectl get pods -o wide
+
+# 测试负载分布
+for i in $(seq 1 100); do curl -s http://<node-ip>:<nodeport> | grep "Pod name"; done | sort | uniq -c
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>NodePort Service 的实战案例</h2>
+
+            <div class="case-study-card">
+                <h3>案例一：构建高可用的 Web 应用入口</h3>
+                <p>这个案例展示如何使用 NodePort Service 结合外部负载均衡器构建高可用的 Web 应用入口，同时保留客户端源 IP。</p>
+                
+                <h4>场景需求：</h4>
+                <ul>
+                    <li>Web 应用需要接收外部流量</li>
+                    <li>需要保留客户端源 IP 用于日志分析和安全审计</li>
+                    <li>需要在多个节点间实现高可用</li>
+                    <li>不希望使用云提供商的 LoadBalancer 服务（成本或环境限制）</li>
+                </ul>
+                
+                <h4>解决方案：</h4>
+                <div class="code-block">
+# 1. 部署 Web 应用
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      # 使用 Pod 拓扑分布约束确保 Pod 分布在多个节点
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: web-app
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+# 2. 创建 NodePort Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-app
+  annotations:
+    service.beta.kubernetes.io/external-traffic: "OnlyLocal"  # 旧版注解，现在使用 externalTrafficPolicy
+spec:
+  selector:
+    app: web-app
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+  type: NodePort
+  externalTrafficPolicy: Local  # 保留客户端源 IP
+                </div>
+                
+                <h4>部署外部负载均衡器：</h4>
+                <p>使用 HAProxy 或 Nginx 作为外部负载均衡器，配置健康检查和源 IP 透传：</p>
+                
+                <div class="code-block">
+# HAProxy 配置示例
+frontend web_frontend
+    bind *:80
+    mode http
+    option forwardfor
+    default_backend web_backend
+
+backend web_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /health
+    http-check expect status 200
+    server node1 192.168.1.101:30080 check
+    server node2 192.168.1.102:30080 check
+    server node3 192.168.1.103:30080 check
+                </div>
+                
+                <h4>成果：</h4>
+                <ul>
+                    <li>实现了高可用的 Web 应用入口</li>
+                    <li>保留了客户端源 IP</li>
+                    <li>外部负载均衡器会自动将流量路由到健康的节点</li>
+                    <li>Pod 拓扑分布确保了均衡的负载分布</li>
+                    <li>节点故障时，流量会自动路由到健康节点</li>
+                </ul>
+            </div>
+
+            <div class="case-study-card">
+                <h3>案例二：边缘设备上的 IoT 网关服务</h3>
+                <p>这个案例展示如何在边缘计算场景中使用 NodePort Service 部署 IoT 数据采集网关。</p>
+                
+                <h4>场景需求：</h4>
+                <ul>
+                    <li>在工厂边缘 Kubernetes 集群上部署 IoT 网关服务</li>
+                    <li>需要使用特定端口与现有 IoT 设备通信（无法更改设备配置）</li>
+                    <li>支持多种协议：MQTT (1883)、CoAP (5683)、HTTP (8080)</li>
+                    <li>确保可靠性和连接持久性</li>
+                </ul>
+                
+                <h4>解决方案：</h4>
+                <div class="code-block">
+# 1. 部署 IoT 网关应用
+apiVersion: apps/v1
+kind: StatefulSet  # 使用 StatefulSet 确保稳定的网络标识
+metadata:
+  name: iot-gateway
+spec:
+  serviceName: iot-gateway
+  replicas: 3
+  selector:
+    matchLabels:
+      app: iot-gateway
+  template:
+    metadata:
+      labels:
+        app: iot-gateway
+    spec:
+      # 使用节点亲和性确保网关部署在特定的边缘节点
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/edge
+                operator: Exists
+      containers:
+      - name: iot-gateway
+        image: example/iot-gateway:v1
+        ports:
+        - name: mqtt
+          containerPort: 1883
+        - name: coap
+          containerPort: 5683
+          protocol: UDP
+        - name: http
+          containerPort: 8080
+        volumeMounts:
+        - name: data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+
+# 2. 创建多协议 NodePort Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: iot-gateway
+spec:
+  selector:
+    app: iot-gateway
+  ports:
+  - name: mqtt
+    port: 1883
+    targetPort: 1883
+    nodePort: 31883
+    protocol: TCP
+  - name: coap
+    port: 5683
+    targetPort: 5683
+    nodePort: 35683
+    protocol: UDP  # 注意：支持 UDP 协议
+  - name: http
+    port: 8080
+    targetPort: 8080
+    nodePort: 38080
+  type: NodePort
+  # 使用 Cluster 模式确保节点故障时连接可以重新路由
+  externalTrafficPolicy: Cluster
+  # 启用会话亲和性，确保 IoT 设备连接到同一个后端
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3小时会话保持
+                </div>
+                
+                <h4>特殊配置说明：</h4>
+                <ul>
+                    <li><strong>StatefulSet</strong>：确保网关实例有稳定的网络标识和存储</li>
+                    <li><strong>多协议支持</strong>：同时支持 TCP 和 UDP 协议</li>
+                    <li><strong>会话亲和性</strong>：确保 IoT 设备连接的持久性</li>
+                    <li><strong>Cluster 模式</strong>：在边缘环境中提高可靠性，避免节点故障导致连接丢失</li>
+                </ul>
+                
+                <h4>成果：</h4>
+                <ul>
+                    <li>IoT 设备可以使用固定的端口连接到网关服务</li>
+                    <li>支持多种协议的设备通信</li>
+                    <li>提供了连接持久性和故障转移能力</li>
+                    <li>在边缘环境中实现了可靠的服务部署</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>NodePort Service 在微服务架构中的最佳实践</h2>
+            
+            <p>在微服务架构中合理使用 NodePort Service 可以提供灵活的访问选项，以下是一些最佳实践：</p>
+            
+            <h3>1. 多层架构中的 NodePort 应用</h3>
+            <p>在典型的多层微服务架构中，NodePort 通常用于以下组件：</p>
+            <ul>
+                <li><strong>API 网关层</strong>：作为所有外部流量的入口点</li>
+                <li><strong>监控和管理端点</strong>：为管理工具提供直接访问</li>
+                <li><strong>调试和测试端点</strong>：在开发和测试环境中便于直接访问服务</li>
+            </ul>
+            
+            <div class="diagram-container">
+                <img src="svg/nodeport-microservices.svg" alt="微服务架构中的 NodePort" class="diagram">
+            </div>
+            
+            <h3>2. 避免 NodePort 过度使用</h3>
+            <p>NodePort 资源是有限的，端口范围通常为 30000-32767，需要谨慎管理：</p>
+            <ul>
+                <li>对于面向外部的服务，考虑使用 Ingress 而非大量 NodePort</li>
+                <li>为相关服务组使用共享的 API 网关</li>
+                <li>对于内部服务间通信，使用 ClusterIP Service</li>
+                <li>合理规划端口分配，避免冲突和混淆</li>
+            </ul>
+            
+            <div class="code-block">
+# 合理的 NodePort 与 Ingress 结合示例
+# 1. 内部服务使用 ClusterIP
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP
+
+# 2. API 网关使用 NodePort
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+spec:
+  selector:
+    app: api-gateway
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30080
+  type: NodePort
+
+# 3. 使用 Ingress 管理外部访问
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: api.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 80
+            </div>
+            
+            <h3>3. NodePort 安全最佳实践</h3>
+            <p>NodePort 直接暴露节点端口，需要特别注意安全性：</p>
+            <ul>
+                <li><strong>防火墙规则</strong>：限制只允许必要的源 IP 访问 NodePort</li>
+                <li><strong>TLS 终止</strong>：在服务或入口处正确配置 TLS</li>
+                <li><strong>认证和授权</strong>：确保 NodePort 服务有适当的访问控制</li>
+                <li><strong>网络策略</strong>：使用 NetworkPolicy 限制 Pod 间通信</li>
+            </ul>
+            
+            <div class="code-block">
+# 为 NodePort 服务设置 NetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 203.0.113.0/24  # 信任的外部 IP 范围
+    ports:
+    - protocol: TCP
+      port: 8080
+            </div>
+            
+            <h3>4. 性能优化考虑</h3>
+            <p>NodePort 服务的性能可能受到多种因素影响：</p>
+            <ul>
+                <li><strong>节点选择</strong>：使用节点亲和性将关键服务放置在高性能节点上</li>
+                <li><strong>保持连接</strong>：启用 TCP keepalive 避免连接重建</li>
+                <li><strong>合理使用会话亲和性</strong>：在必要时使用 ClientIP 亲和性，但注意负载平衡影响</li>
+                <li><strong>监控节点网络吞吐量</strong>：确保节点网络不会成为瓶颈</li>
+            </ul>
+            
+            <div class="code-block">
+# Pod 指定节点亲和性示例
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: performance-critical-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: critical-app
+  template:
+    metadata:
+      labels:
+        app: critical-app
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            preference:
+              matchExpressions:
+              - key: node-type
+                operator: In
+                values:
+                - high-performance
+      containers:
+      - name: app
+        image: myapp:latest
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+            </div>
+        </section>
+
+        <section>
+            <p>NodePort Service 是 Kubernetes 中一个强大的功能，它提供了一种简单直接的方式将集群内的服务暴露到外部。通过理解其工作原理和实践最佳模式，您可以有效地将其应用于各种场景，同时避免常见陷阱。</p>
+            <div class="navigation-buttons">
+                <a href="service-network.html" class="button">返回 Service 网络</a>
+                <a href="service-clusterip.html" class="button">了解 ClusterIP Service</a>
+                <a href="service-loadbalancer.html" class="button">了解 LoadBalancer Service</a>
+                <a href="service-advanced-topics.html" class="button">Service 高级主题</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html> 

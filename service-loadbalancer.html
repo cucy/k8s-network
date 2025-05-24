@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoadBalancer Service | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>LoadBalancer Service 详解</h2>
+            <p>LoadBalancer Service 是 Kubernetes 中最完整的对外暴露服务的方式，它在 NodePort 的基础上增加了一个外部负载均衡器，提供单一入口点访问集群服务。本文将深入探讨 LoadBalancer Service 的工作原理、使用场景和实现细节。</p>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/loadbalancer-service.svg" class="diagram">
+                    LoadBalancer Service 示意图
+                </object>
+            </div>
+        </section>
+
+        <section>
+            <h2>LoadBalancer Service 基础</h2>
+            <p>LoadBalancer Service 在 NodePort Service 的基础上提供了更高级的功能：</p>
+            <ul>
+                <li>分配一个集群内部的虚拟 IP 地址（ClusterIP）</li>
+                <li>在每个节点上打开一个静态端口（NodePort）</li>
+                <li>配置外部负载均衡器，将流量转发到集群节点的 NodePort</li>
+                <li>分配一个外部可访问的 IP 地址（LoadBalancer IP）</li>
+                <li>提供单一、稳定的外部入口点</li>
+            </ul>
+            
+            <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80          # 外部访问的端口
+    targetPort: 8080  # Pod 上的目标端口
+  type: LoadBalancer
+  # loadBalancerIP: 203.0.113.10  # 可选，在支持的云平台上指定 IP
+            </div>
+        </section>
+
+        <section>
+            <h2>LoadBalancer Service 实现机制</h2>
+            <p>LoadBalancer Service 的实现涉及多个组件和云提供商的集成：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">云提供商环境</div>
+                    <div class="tab">裸机环境</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h3>云提供商实现</h3>
+                        <p>在公有云环境中，LoadBalancer Service 的实现流程如下：</p>
+                        <ol>
+                            <li>当创建 type: LoadBalancer 的 Service 时，Kubernetes 会创建一个 ClusterIP 和 NodePort</li>
+                            <li>云控制器管理器（Cloud Controller Manager）监听到新的 LoadBalancer Service</li>
+                            <li>云控制器调用云提供商的 API 创建外部负载均衡器</li>
+                            <li>负载均衡器配置为将流量转发到所有节点的 NodePort</li>
+                            <li>云控制器将负载均衡器的 IP 地址更新到 Service 的 status.loadBalancer.ingress 字段</li>
+                            <li>客户端通过负载均衡器 IP 访问服务</li>
+                        </ol>
+                        
+                        <div class="diagram-container">
+                            <img src="svg/cloud-loadbalancer-flow.svg" alt="云负载均衡流程" class="diagram">
+                        </div>
+                        
+                        <h4>各大云提供商的实现差异：</h4>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>云提供商</th>
+                                    <th>负载均衡器类型</th>
+                                    <th>特殊功能</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>AWS</td>
+                                    <td>Elastic Load Balancer (ELB) / Network Load Balancer (NLB)</td>
+                                    <td>支持内部负载均衡器，可以通过注解配置</td>
+                                </tr>
+                                <tr>
+                                    <td>GCP</td>
+                                    <td>Google Cloud Load Balancer</td>
+                                    <td>支持全局负载均衡，可自动处理多区域流量</td>
+                                </tr>
+                                <tr>
+                                    <td>Azure</td>
+                                    <td>Azure Load Balancer</td>
+                                    <td>支持内部和外部负载均衡器</td>
+                                </tr>
+                                <tr>
+                                    <td>阿里云</td>
+                                    <td>Server Load Balancer (SLB)</td>
+                                    <td>支持标准 SLB 和 NLB</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h3>裸机环境实现</h3>
+                        <p>在没有云提供商的裸机环境中，可以使用以下方案实现 LoadBalancer Service：</p>
+                        
+                        <h4>1. MetalLB</h4>
+                        <p>MetalLB 是一个流行的开源负载均衡器实现，为裸机 Kubernetes 集群提供 LoadBalancer Service：</p>
+                        <ul>
+                            <li><strong>Layer 2 模式</strong>：使用 ARP（IPv4）或 NDP（IPv6）协议宣告服务 IP</li>
+                            <li><strong>BGP 模式</strong>：使用 BGP 协议将服务 IP 宣告给网络路由器</li>
+                        </ul>
+                        
+                        <div class="code-block">
+# MetalLB 配置示例 (ConfigMap)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - 192.168.1.240-192.168.1.250
+                        </div>
+                        
+                        <h4>2. OpenELB</h4>
+                        <p>OpenELB（前身为 PorterLB）是另一个为裸机集群设计的负载均衡器实现：</p>
+                        <ul>
+                            <li>支持 Layer 2 和 BGP 模式</li>
+                            <li>与 KubeSphere 容器平台集成良好</li>
+                        </ul>
+                        
+                        <h4>3. kube-vip</h4>
+                        <p>kube-vip 提供高可用的虚拟 IP 和负载均衡功能：</p>
+                        <ul>
+                            <li>可以用于控制平面高可用和 LoadBalancer Service</li>
+                            <li>支持 ARP、BGP 和 VRRP 协议</li>
+                            <li>适合边缘计算和小型集群</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>LoadBalancer Service 的数据流向</h2>
+            <p>当客户端通过 LoadBalancer 访问服务时，数据包的流向如下：</p>
+            
+            <div class="diagram-container">
+                <img src="svg/loadbalancer-packet-flow.svg" alt="LoadBalancer 数据包流向" class="diagram">
+            </div>
+            
+            <ol>
+                <li><strong>客户端请求</strong>：客户端向 LoadBalancer IP 发送请求</li>
+                <li><strong>负载均衡器处理</strong>：外部负载均衡器接收请求，选择一个健康的节点</li>
+                <li><strong>转发到节点</strong>：请求被转发到选中节点的 NodePort</li>
+                <li><strong>节点处理</strong>：
+                    <ul>
+                        <li>节点上的 iptables/IPVS 规则捕获发往 NodePort 的流量</li>
+                        <li>执行 DNAT，将目标地址修改为选中的 Pod IP:Port</li>
+                    </ul>
+                </li>
+                <li><strong>路由到 Pod</strong>：
+                    <ul>
+                        <li>如果 Pod 在当前节点，直接转发到本地 Pod</li>
+                        <li>如果 Pod 在其他节点，通过容器网络路由到目标节点和 Pod</li>
+                    </ul>
+                </li>
+                <li><strong>处理请求</strong>：Pod 处理请求并生成响应</li>
+                <li><strong>响应返回</strong>：响应沿原路返回到客户端</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>动手实验：深入理解 LoadBalancer Service</h2>
+            
+            <div class="experiment-card">
+                <h3>实验 1：在云环境中创建 LoadBalancer Service</h3>
+                <p class="note">本实验需要在支持 LoadBalancer 的云环境中进行，如 AWS、GCP、Azure 或托管 Kubernetes 服务。</p>
+                
+                <h4>步骤 1：部署测试应用</h4>
+                <div class="code-block command">
+# 创建一个简单的 Web 应用
+kubectl create deployment lb-demo --image=nginx:alpine --replicas=3
+kubectl label deployment lb-demo app=lb-demo
+
+# 自定义 Nginx 页面，显示 Pod 信息
+for pod in $(kubectl get pods -l app=lb-demo -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl exec -it $pod -- sh -c 'echo "<span class=\"html-tag\">&lt;h1&gt;</span><span class=\"html-content\">LoadBalancer Demo</span><span class=\"html-tag\">&lt;/h1&gt;</span><span class=\"html-tag\">&lt;p&gt;</span><span class=\"html-content\">Pod Name: $(hostname)</span><span class=\"html-tag\">&lt;/p&gt;</span><span class=\"html-tag\">&lt;p&gt;</span><span class=\"html-content\">Pod IP: $(hostname -i)</span><span class=\"html-tag\">&lt;/p&gt;</span>" > /usr/share/nginx/html/index.html'
+done
+                </div>
+                
+                <h4>步骤 2：创建 LoadBalancer Service</h4>
+                <div class="code-block command">
+# 创建 LoadBalancer Service 配置
+cat > loadbalancer-service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb-demo
+spec:
+  selector:
+    app: lb-demo
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer
+EOF
+
+# 应用配置
+kubectl apply -f loadbalancer-service.yaml
+
+# 查看创建的 Service
+kubectl get service lb-demo
+                </div>
+                
+                <h4>步骤 3：等待外部 IP 分配</h4>
+                <div class="code-block command">
+# 监控 Service 状态，等待外部 IP 分配
+kubectl get service lb-demo -w
+
+# 一旦分配了外部 IP，可以按 Ctrl+C 停止监控
+# 获取外部 IP
+EXTERNAL_IP=$(kubectl get service lb-demo -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+# 如果返回的是 hostname 而不是 IP（如在 AWS 上）
+if [ -z "$EXTERNAL_IP" ]; then
+  EXTERNAL_IP=$(kubectl get service lb-demo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+fi
+
+echo "LoadBalancer 外部 IP/主机名: $EXTERNAL_IP"
+                </div>
+                
+                <h4>步骤 4：测试 LoadBalancer 服务</h4>
+                <div class="code-block command">
+# 访问 LoadBalancer IP
+curl http://$EXTERNAL_IP
+
+# 多次访问，观察负载均衡效果
+for i in {1..10}; do
+  curl -s http://$EXTERNAL_IP | grep "Pod Name"
+  sleep 1
+done
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 2：在裸机环境中使用 MetalLB</h3>
+                <p class="note">本实验需要在裸机 Kubernetes 集群中进行，并安装 MetalLB。</p>
+                
+                <h4>步骤 1：安装 MetalLB</h4>
+                <div class="code-block command">
+# 创建命名空间
+kubectl create namespace metallb-system
+
+# 应用 MetalLB 清单
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+
+# 等待 MetalLB 组件就绪
+kubectl wait --namespace metallb-system \
+  --for=condition=ready pod \
+  --selector=app=metallb \
+  --timeout=90s
+                </div>
+                
+                <h4>步骤 2：配置 MetalLB 地址池</h4>
+                <div class="code-block command">
+# 创建 Layer2 地址池配置
+# 注意：需要根据您的网络环境修改 IP 范围
+cat > metallb-pool.yaml << 'EOF'
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: first-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 192.168.1.240-192.168.1.250
+EOF
+
+# 创建 L2 通告配置
+cat > metallb-l2.yaml << 'EOF'
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-advert
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - first-pool
+EOF
+
+# 应用配置
+kubectl apply -f metallb-pool.yaml
+kubectl apply -f metallb-l2.yaml
+                </div>
+                
+                <h4>步骤 3：创建和测试 LoadBalancer Service</h4>
+                <div class="code-block command">
+# 创建一个测试部署
+kubectl create deployment metal-lb-test --image=nginx:alpine
+
+# 创建 LoadBalancer Service
+kubectl expose deployment metal-lb-test --type=LoadBalancer --port=80
+
+# 查看 Service 获取分配的 IP
+kubectl get service metal-lb-test -w
+                </div>
+                
+                <div class="code-block command">
+# 获取外部 IP
+METAL_LB_IP=$(kubectl get service metal-lb-test -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "MetalLB 分配的 IP: $METAL_LB_IP"
+
+# 测试访问
+curl http://$METAL_LB_IP
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 3：探索 LoadBalancer Service 和云资源的关系</h3>
+                <p class="note">本实验在公有云环境中进行，需要有访问云控制台的权限。</p>
+                
+                <h4>步骤 1：查看 LoadBalancer Service 的详细信息</h4>
+                <div class="code-block command">
+# 查看 Service 的详细信息
+kubectl describe service lb-demo
+
+# 查看 Service 的完整 YAML
+kubectl get service lb-demo -o yaml
+                </div>
+                
+                <h4>步骤 2：在云控制台查看负载均衡器</h4>
+                <p>登录您的云提供商控制台，查找与 Kubernetes Service 关联的负载均衡器：</p>
+                <ul>
+                    <li><strong>AWS</strong>：查看 EC2 > 负载均衡器</li>
+                    <li><strong>GCP</strong>：查看 网络服务 > 负载均衡</li>
+                    <li><strong>Azure</strong>：查看 负载均衡器</li>
+                    <li><strong>阿里云</strong>：查看 负载均衡 SLB</li>
+                </ul>
+                <p>观察负载均衡器的配置，特别是：</p>
+                <ul>
+                    <li>后端目标组/池（应该指向集群节点）</li>
+                    <li>监听器配置（端口映射）</li>
+                    <li>健康检查设置</li>
+                </ul>
+                
+                <h4>步骤 3：分析节点上的 iptables 规则</h4>
+                <div class="code-block command">
+# 在集群节点上运行（需要 SSH 到节点或使用特权 Pod）
+kubectl debug node/$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -it --image=ubuntu
+
+# 在节点调试容器中执行
+apt-get update && apt-get install -y iptables
+
+# 查看相关的 iptables 规则
+# 注意检查 NodePort 规则，因为 LoadBalancer 底层使用 NodePort
+NODE_PORT=$(kubectl get service lb-demo -o jsonpath='{.spec.ports[0].nodePort}')
+iptables-save | grep $NODE_PORT
+
+# 退出节点调试容器
+exit
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>LoadBalancer Service 的高级配置</h2>
+            
+            <h3>1. 云提供商特定注解</h3>
+            <p>每个云提供商都支持通过 Service 注解来配置负载均衡器的特定功能：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">AWS</div>
+                    <div class="tab">GCP</div>
+                    <div class="tab">Azure</div>
+                    <div class="tab">阿里云</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h4>AWS 负载均衡器注解</h4>
+                        <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    # 负载均衡器类型
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # 可选值: elb, nlb, external
+    
+    # 内部/外部负载均衡器
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    
+    # SSL 证书配置
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:region:account:certificate/cert-id"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+    
+    # 访问日志
+    service.beta.kubernetes.io/aws-load-balancer-access-log-enabled: "true"
+    service.beta.kubernetes.io/aws-load-balancer-access-log-emit-interval: "5"
+    service.beta.kubernetes.io/aws-load-balancer-access-log-s3-bucket-name: "my-logs"
+    service.beta.kubernetes.io/aws-load-balancer-access-log-s3-bucket-prefix: "my-app"
+    
+    # 连接配置
+    service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
+    
+    # 跨区域负载均衡
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    
+    # 安全组配置
+    service.beta.kubernetes.io/aws-load-balancer-security-groups: "sg-xxxx,sg-yyyy"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h4>GCP 负载均衡器注解</h4>
+                        <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    # 负载均衡器类型
+    networking.gke.io/load-balancer-type: "Internal"  # 内部负载均衡器
+    
+    # 子网配置
+    networking.gke.io/internal-load-balancer-subnet: "my-subnet"
+    
+    # 负载均衡方案
+    cloud.google.com/neg: '{"ingress": true}'  # 使用 NEG（网络端点组）
+    
+    # 全局访问
+    networking.gke.io/internal-load-balancer-allow-global-access: "true"
+    
+    # 本地流量路由
+    cloud.google.com/app-protocols: '{"https":"HTTP2"}'
+    
+    # 后端服务配置
+    cloud.google.com/backend-config: '{"ports": {"80":"my-backendconfig"}}'
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h4>Azure 负载均衡器注解</h4>
+                        <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    # 负载均衡器类型
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    
+    # 高级网络配置
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "my-subnet"
+    service.beta.kubernetes.io/azure-load-balancer-mode: "auto"
+    
+    # 健康探针配置
+    service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "30"
+    
+    # 资源组配置
+    service.beta.kubernetes.io/azure-load-balancer-resource-group: "my-resource-group"
+    
+    # DNS 标签
+    service.beta.kubernetes.io/azure-dns-label-name: "my-app"
+    
+    # 安全组配置
+    service.beta.kubernetes.io/azure-allow-shared-security-rule: "true"
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 10.2.4.1  # Azure 支持指定内部 IP
+  ports:
+  - port: 80
+    targetPort: 8080
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h4>阿里云负载均衡器注解</h4>
+                        <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    # 负载均衡器类型
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-id: "lb-bp1qp8u5o94zr*******"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type: "internet"  # 或 intranet
+    
+    # 规格配置
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-spec: "slb.s2.small"
+    
+    # 带宽配置
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-bandwidth: "100"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-charge-type: "PayByBandwidth"
+    
+    # 会话保持
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-sticky-session: "on"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-sticky-session-type: "insert"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-cookie-timeout: "1800"
+    
+    # 健康检查
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-health-check-type: "tcp"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-health-check-timeout: "10"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-health-check-interval: "20"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <h3>2. 多区域和混合云部署</h3>
+            <p>在多区域或混合云环境中部署 LoadBalancer Service 需要特殊考虑：</p>
+            
+            <h4>全球负载均衡方案</h4>
+            <p>对于跨区域的应用，可以采用以下方案：</p>
+            <ul>
+                <li><strong>区域级 LoadBalancer + DNS</strong>：在每个区域部署 LoadBalancer，使用 Route53、Cloud DNS 等全球 DNS 服务进行智能路由</li>
+                <li><strong>全球负载均衡器</strong>：使用 GCP 的全球负载均衡器或 AWS Global Accelerator</li>
+                <li><strong>多集群入口</strong>：使用服务网格如 Istio 或多集群 Ingress 控制器</li>
+            </ul>
+            
+            <div class="code-block">
+# 多区域部署示例 - 区域 A 的服务
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service-us
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    external-dns.alpha.kubernetes.io/hostname: "us.my-app.example.com"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 443
+    targetPort: 8443
+
+---
+# 多区域部署示例 - 区域 B 的服务
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service-eu
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    external-dns.alpha.kubernetes.io/hostname: "eu.my-app.example.com"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 443
+    targetPort: 8443
+
+---
+# 使用 ExternalDNS 为全球入口点创建加权 DNS 记录
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service-global
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "my-app.example.com"
+    external-dns.alpha.kubernetes.io/aws-weight: "100"
+spec:
+  type: ExternalName
+  externalName: us.my-app.example.com
+            </div>
+            
+            <h3>3. 高级流量管理</h3>
+            
+            <h4>源 IP 保留</h4>
+            <p>LoadBalancer 服务默认会对流量进行 SNAT，这会导致 Pod 看到的源 IP 是节点 IP 而非客户端 IP。通过 externalTrafficPolicy 可以修改这一行为：</p>
+            
+            <div class="code-block">
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: LoadBalancer
+  externalTrafficPolicy: Local  # 保留客户端源 IP，但流量只会路由到本地 Pod
+            </div>
+            
+            <h4>健康检查配置</h4>
+            <p>不同云提供商支持自定义负载均衡器的健康检查参数：</p>
+            
+            <div class="code-block">
+# AWS 健康检查示例
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "HTTP"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/health"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "80"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "30"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout: "5"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+            </div>
+        </section>
+
+        <section>
+            <h2>深度性能测试实验</h2>
+            
+            <div class="experiment-card">
+                <h3>实验 1：多种 Service 类型性能对比</h3>
+                <p>本实验对比不同类型 Service 在各种负载下的性能表现。</p>
+                
+                <h4>步骤 1：准备测试环境</h4>
+                <div class="code-block command">
+# 创建测试命名空间
+kubectl create namespace perf-test
+
+# 部署性能测试后端服务
+cat << 'EOF' | kubectl apply -n perf-test -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: perf-backend
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: perf-backend
+  template:
+    metadata:
+      labels:
+        app: perf-backend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+EOF
+
+# 创建不同类型的 Service
+cat << 'EOF' | kubectl apply -n perf-test -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: perf-clusterip
+spec:
+  selector:
+    app: perf-backend
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: perf-nodeport
+spec:
+  selector:
+    app: perf-backend
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: perf-loadbalancer
+spec:
+  selector:
+    app: perf-backend
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer
+EOF
+
+# 等待所有 Pod 就绪
+kubectl wait --for=condition=Ready pods --all -n perf-test --timeout=120s
+                </div>
+                
+                <h4>步骤 2：部署性能测试工具</h4>
+                <div class="code-block command">
+# 部署 Hey 性能测试工具
+cat << 'EOF' | kubectl apply -n perf-test -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: loadtest
+spec:
+  containers:
+  - name: hey
+    image: rakyll/hey
+    command:
+    - "sleep"
+    - "3600"
+EOF
+
+# 等待测试 Pod 就绪
+kubectl wait --for=condition=Ready pods loadtest -n perf-test --timeout=60s
+                </div>
+                
+                <h4>步骤 3：执行性能测试</h4>
+                <div class="code-block command">
+# 测试 ClusterIP Service 性能（集群内部访问）
+kubectl exec -it loadtest -n perf-test -- hey -n 10000 -c 100 http://perf-clusterip
+
+# 获取节点 IP 测试 NodePort
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+# 测试 NodePort Service 性能
+kubectl exec -it loadtest -n perf-test -- hey -n 10000 -c 100 http://$NODE_IP:30080
+
+# 获取 LoadBalancer IP
+LB_IP=$(kubectl get svc perf-loadbalancer -n perf-test -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+# 测试 LoadBalancer Service 性能
+kubectl exec -it loadtest -n perf-test -- hey -n 10000 -c 100 http://$LB_IP
+                </div>
+                
+                <h4>步骤 4：收集和分析结果</h4>
+                <div class="code-block command">
+# 创建一个脚本进行对比测试和结果收集
+cat << 'EOF' > service-perf-test.sh
+#!/bin/bash
+# 获取服务端点
+CLUSTERIP="perf-clusterip"
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_PORT="30080"
+LB_IP=$(kubectl get svc perf-loadbalancer -n perf-test -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+# 测试参数
+CONNECTIONS=(10 50 100 200 500)
+REQUESTS=10000
+
+echo "Service Performance Test Results" > results.csv
+echo "Type,Connections,QPS,Avg Latency (ms),P99 Latency (ms)" >> results.csv
+
+# 运行测试
+for CONN in "${CONNECTIONS[@]}"; do
+  echo "Testing ClusterIP with $CONN connections..."
+  kubectl exec -it loadtest -n perf-test -- hey -n $REQUESTS -c $CONN -o csv http://$CLUSTERIP > clusterip_$CONN.csv
+  QPS=$(tail -n 1 clusterip_$CONN.csv | cut -d ',' -f 2)
+  AVG=$(tail -n 1 clusterip_$CONN.csv | cut -d ',' -f 3)
+  P99=$(tail -n 1 clusterip_$CONN.csv | cut -d ',' -f 4)
+  echo "ClusterIP,$CONN,$QPS,$AVG,$P99" >> results.csv
+  
+  echo "Testing NodePort with $CONN connections..."
+  kubectl exec -it loadtest -n perf-test -- hey -n $REQUESTS -c $CONN -o csv http://$NODE_IP:$NODE_PORT > nodeport_$CONN.csv
+  QPS=$(tail -n 1 nodeport_$CONN.csv | cut -d ',' -f 2)
+  AVG=$(tail -n 1 nodeport_$CONN.csv | cut -d ',' -f 3)
+  P99=$(tail -n 1 nodeport_$CONN.csv | cut -d ',' -f 4)
+  echo "NodePort,$CONN,$QPS,$AVG,$P99" >> results.csv
+  
+  if [ ! -z "$LB_IP" ]; then
+    echo "Testing LoadBalancer with $CONN connections..."
+    kubectl exec -it loadtest -n perf-test -- hey -n $REQUESTS -c $CONN -o csv http://$LB_IP > loadbalancer_$CONN.csv
+    QPS=$(tail -n 1 loadbalancer_$CONN.csv | cut -d ',' -f 2)
+    AVG=$(tail -n 1 loadbalancer_$CONN.csv | cut -d ',' -f 3)
+    P99=$(tail -n 1 loadbalancer_$CONN.csv | cut -d ',' -f 4)
+    echo "LoadBalancer,$CONN,$QPS,$AVG,$P99" >> results.csv
+  fi
+done
+
+echo "Test complete. Results saved to results.csv"
+EOF
+
+chmod +x service-perf-test.sh
+./service-perf-test.sh
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>实验 2：不同 kube-proxy 模式下的 Service 性能</h3>
+                <p>本实验比较 iptables 和 IPVS 模式下 Service 的性能差异。</p>
+                
+                <h4>步骤 1：检查和配置 kube-proxy 模式</h4>
+                <div class="code-block command">
+# 查看当前 kube-proxy 模式
+kubectl get configmap -n kube-system kube-proxy -o yaml | grep mode
+
+# 备份当前配置
+kubectl get configmap -n kube-system kube-proxy -o yaml > kube-proxy-original.yaml
+
+# 修改为 iptables 模式（如果当前是 IPVS）
+kubectl get configmap -n kube-system kube-proxy -o yaml | \
+  sed 's/mode: ipvs/mode: iptables/g' | \
+  kubectl apply -f -
+
+# 重启 kube-proxy
+kubectl rollout restart daemonset -n kube-system kube-proxy
+
+# 等待 kube-proxy 重启完成
+kubectl rollout status daemonset -n kube-system kube-proxy
+                </div>
+                
+                <h4>步骤 2：在 iptables 模式下执行测试</h4>
+                <div class="code-block command">
+# 使用上一个实验中的脚本执行测试
+./service-perf-test.sh > iptables-results.csv
+
+# 或手动执行单个测试
+kubectl exec -it loadtest -n perf-test -- hey -n 10000 -c 100 http://perf-clusterip
+                </div>
+                
+                <h4>步骤 3：切换到 IPVS 模式</h4>
+                <div class="code-block command">
+# 确保安装了 IPVS 模块
+cat << 'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ipvs-check
+  namespace: kube-system
+spec:
+  hostNetwork: true
+  containers:
+  - name: ipvs-check
+    image: busybox
+    command: 
+    - sh
+    - -c
+    - "until lsmod | grep ip_vs; do echo 'Waiting for IPVS modules'; sleep 1; done && echo 'IPVS modules loaded' && sleep 300"
+  tolerations:
+  - operator: Exists
+EOF
+
+# 等待检查完成
+kubectl logs -n kube-system ipvs-check -f
+
+# 修改为 IPVS 模式
+kubectl get configmap -n kube-system kube-proxy -o yaml | \
+  sed 's/mode: iptables/mode: ipvs/g' | \
+  kubectl apply -f -
+
+# 重启 kube-proxy
+kubectl rollout restart daemonset -n kube-system kube-proxy
+
+# 等待 kube-proxy 重启完成
+kubectl rollout status daemonset -n kube-system kube-proxy
+                </div>
+                
+                <h4>步骤 4：在 IPVS 模式下执行测试</h4>
+                <div class="code-block command">
+# 使用脚本执行测试
+./service-perf-test.sh > ipvs-results.csv
+
+# 或手动执行单个测试
+kubectl exec -it loadtest -n perf-test -- hey -n 10000 -c 100 http://perf-clusterip
+                </div>
+                
+                <h4>步骤 5：对比结果</h4>
+                <div class="code-block command">
+# 创建对比分析脚本
+cat << 'EOF' > compare-results.py
+#!/usr/bin/env python3
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 读取结果
+iptables_df = pd.read_csv('iptables-results.csv')
+ipvs_df = pd.read_csv('ipvs-results.csv')
+
+# 添加模式列
+iptables_df['Mode'] = 'iptables'
+ipvs_df['Mode'] = 'ipvs'
+
+# 合并数据
+df = pd.concat([iptables_df, ipvs_df])
+
+# 绘制QPS对比图
+plt.figure(figsize=(12, 6))
+for service_type in df['Type'].unique():
+    for mode in ['iptables', 'ipvs']:
+        data = df[(df['Type'] == service_type) & (df['Mode'] == mode)]
+        plt.plot(data['Connections'], data['QPS'], marker='o', label=f"{service_type} - {mode}")
+
+plt.xlabel('Concurrent Connections')
+plt.ylabel('Queries Per Second')
+plt.title('Service Performance: iptables vs IPVS')
+plt.legend()
+plt.grid(True)
+plt.savefig('service_performance_qps.png')
+
+# 绘制延迟对比图
+plt.figure(figsize=(12, 6))
+for service_type in df['Type'].unique():
+    for mode in ['iptables', 'ipvs']:
+        data = df[(df['Type'] == service_type) & (df['Mode'] == mode)]
+        plt.plot(data['Connections'], data['P99 Latency (ms)'], marker='o', label=f"{service_type} - {mode}")
+
+plt.xlabel('Concurrent Connections')
+plt.ylabel('P99 Latency (ms)')
+plt.title('Service Latency: iptables vs IPVS')
+plt.legend()
+plt.grid(True)
+plt.savefig('service_performance_latency.png')
+
+print("Comparison plots generated: service_performance_qps.png and service_performance_latency.png")
+EOF
+
+chmod +x compare-results.py
+python3 compare-results.py
+                </div>
+                
+                <h4>步骤 6：恢复原始配置</h4>
+                <div class="code-block command">
+# 恢复原始 kube-proxy 配置
+kubectl apply -f kube-proxy-original.yaml
+
+# 重启 kube-proxy
+kubectl rollout restart daemonset -n kube-system kube-proxy
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>LoadBalancer Service 的最佳实践</h2>
+            
+            <div class="best-practices-card">
+                <h3>成本优化</h3>
+                <ul>
+                    <li><strong>共享负载均衡器</strong>：使用共享 IP 注解，在支持的云平台上多个 Service 共享一个负载均衡器</li>
+                    <li><strong>静态 IP 复用</strong>：保留和复用静态 IP 地址，避免反复创建和删除</li>
+                    <li><strong>考虑替代方案</strong>：对于非生产环境，考虑使用 NodePort + Ingress 减少负载均衡器数量</li>
+                </ul>
+                
+                <div class="code-block">
+# AWS 共享负载均衡器示例
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-1
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    # 共享 LB 标记
+    service.beta.kubernetes.io/aws-load-balancer-name: "shared-nlb"
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-2
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    # 使用相同的共享 LB 标记
+    service.beta.kubernetes.io/aws-load-balancer-name: "shared-nlb"
+spec:
+  ports:
+  - port: 443
+    targetPort: 8443
+  type: LoadBalancer
+                </div>
+            </div>
+            
+            <div class="best-practices-card">
+                <h3>安全最佳实践</h3>
+                <ul>
+                    <li><strong>限制源 IP 范围</strong>：使用 loadBalancerSourceRanges 限制允许访问的 IP 地址</li>
+                    <li><strong>使用 TLS 终止</strong>：配置负载均衡器进行 SSL/TLS 终止</li>
+                    <li><strong>内部负载均衡器</strong>：对于内部服务，使用内部负载均衡器而非公网访问</li>
+                    <li><strong>安全组配置</strong>：合理配置负载均衡器的安全组，只开放必要端口</li>
+                </ul>
+                
+                <div class="code-block">
+# 使用 loadBalancerSourceRanges 限制访问
+apiVersion: v1
+kind: Service
+metadata:
+  name: restricted-service
+spec:
+  selector:
+    app: my-app
+  ports:
+  - port: 443
+    targetPort: 8443
+  type: LoadBalancer
+  # 只允许特定 IP 范围访问
+  loadBalancerSourceRanges:
+  - 203.0.113.0/24
+  - 198.51.100.0/24
+                </div>
+            </div>
+            
+            <div class="best-practices-card">
+                <h3>高可用性配置</h3>
+                <ul>
+                    <li><strong>多可用区部署</strong>：确保后端 Pod 分布在多个可用区</li>
+                    <li><strong>健康检查调优</strong>：配置适当的健康检查参数，快速检测和替换故障节点</li>
+                    <li><strong>连接耗尽</strong>：使用 Pod 优雅终止期配合负载均衡器配置，确保连接平滑耗尽</li>
+                    <li><strong>会话亲和性</strong>：根据需要配置会话保持功能，但注意负载分布影响</li>
+                </ul>
+                
+                <div class="code-block">
+# 多可用区 Pod 部署示例
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ha-app
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: ha-app
+  template:
+    metadata:
+      labels:
+        app: ha-app
+    spec:
+      # 确保 Pod 分布在不同节点和可用区
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: ha-app
+      terminationGracePeriodSeconds: 60  # 优雅终止期
+      containers:
+      - name: app
+        image: my-app:latest
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 30"]  # 延迟终止，等待连接耗尽
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <p>LoadBalancer Service 提供了强大而灵活的方式将 Kubernetes 服务暴露到外部世界。通过理解其工作原理、掌握各云提供商的特定配置，以及应用最佳实践，您可以构建高性能、安全且可靠的服务访问层。</p>
+            <div class="navigation-buttons">
+                <a href="service-network.html" class="button">返回 Service 网络</a>
+                <a href="service-clusterip.html" class="button">了解 ClusterIP Service</a>
+                <a href="service-nodeport.html" class="button">了解 NodePort Service</a>
+                <a href="service-externalname.html" class="button">了解 ExternalName Service</a>
+                <a href="service-advanced-topics.html" class="button">Service 高级主题</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html> 

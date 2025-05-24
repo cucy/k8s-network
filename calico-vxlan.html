@@ -372,7 +372,7 @@ kubectl get ippools.crd.projectcalico.org -o yaml
                         
                         <h4>2. 创建新的VXLAN IPPool</h4>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: IPPool
 metadata:
@@ -390,7 +390,7 @@ EOF
                         <h4>3. 禁用旧的IPPool</h4>
                         <p>通过将旧IPPool的nodeSelector设置为"none()"来禁用它，这样新的Pod将使用新的VXLAN IPPool：</p>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: IPPool
 metadata:
@@ -435,7 +435,7 @@ kubectl get pods -o wide
                         <h4>1. 自定义VNI</h4>
                         <p>默认情况下，Calico使用VNI 4096。如果需要自定义VNI，可以通过FelixConfiguration资源进行配置：</p>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: FelixConfiguration
 metadata:
@@ -448,7 +448,7 @@ EOF
                         <h4>2. 自定义MTU</h4>
                         <p>VXLAN封装增加了50字节的开销，因此需要相应调整MTU：</p>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: FelixConfiguration
 metadata:
@@ -461,7 +461,7 @@ EOF
                         <h4>3. 配置VXLAN端口</h4>
                         <p>默认情况下，Calico VXLAN使用UDP端口4789。如果需要更改端口，可以通过以下配置：</p>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: FelixConfiguration
 metadata:
@@ -488,7 +488,7 @@ ip route add 10.244.0.0/16 via <Kubernetes节点IP>
                         <h4>2. 配置Calico BGP对等体</h4>
                         <p>如果外部网络支持BGP，可以配置Calico与外部路由器建立BGP对等关系：</p>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: BGPPeer
 metadata:
@@ -517,7 +517,7 @@ bridge fdb append 00:00:00:00:00:00 dev vxlan.calico dst 192.168.100.1
                     <div class="accordion-content">
                         <p>如果您使用Calico Operator部署Calico，可以通过Installation自定义资源配置VXLAN：</p>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: operator.tigera.io/v1
 kind: Installation
 metadata:
@@ -545,7 +545,7 @@ EOF
                 <ol>
                     <li>检查VXLAN接口：<code>ip -d link show vxlan.calico</code></li>
                     <li>检查路由表：<code>ip route | grep vxlan</code></li>
-                    <li>检查Pod连通性：<code>kubectl exec -it &lt;pod-name&gt; -- ping &lt;other-pod-ip&gt;</code></li>
+                    <li>检查Pod连通性：<code>kubectl exec -it <pod-name> -- ping <other-pod-ip></code></li>
                     <li>抓包分析：<code>tcpdump -i any udp port 4789 -n</code></li>
                 </ol>
             </div>
@@ -570,7 +570,7 @@ EOF
                         
                         <h4>2. 配置Calico MTU</h4>
                         <div class="code-block">
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: FelixConfiguration
 metadata:
@@ -635,7 +635,7 @@ ethtool -K eth0 gro on
                         <h4>1. 增加网络缓冲区大小</h4>
                         <div class="code-block">
 # 增加网络缓冲区大小
-cat <<EOF > /etc/sysctl.d/90-network-performance.conf
+cat << 'EOF' > /etc/sysctl.d/90-network-performance.conf
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.ipv4.tcp_rmem=4096 87380 16777216
@@ -650,7 +650,7 @@ sysctl -p /etc/sysctl.d/90-network-performance.conf
                         <h4>2. 启用BBR拥塞控制算法</h4>
                         <div class="code-block">
 # 启用BBR
-cat <<EOF >> /etc/sysctl.d/90-network-performance.conf
+cat << 'EOF' >> /etc/sysctl.d/90-network-performance.conf
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 EOF
@@ -687,7 +687,7 @@ uname -r
 kubectl patch installation default --type=merge -p '{"spec": {"calicoNetwork": {"linuxDataplane": "BPF"}}}'
 
 # 或使用FelixConfiguration
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: FelixConfiguration
 metadata:
@@ -883,7 +883,7 @@ kubectl exec -it <pod-name> -- ping -c 3 -s 1500 <target-pod-ip>
                         <h4>3. 修复MTU问题</h4>
                         <div class="code-block">
 # 修改Calico FelixConfiguration中的MTU设置
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: FelixConfiguration
 metadata:
@@ -977,7 +977,7 @@ kubectl logs -n kube-system calico-node-xxxxx -c calico-node | grep -i vxlan
                         <h4>2. 增加日志级别</h4>
                         <div class="code-block">
 # 设置更详细的日志级别
-cat &lt;&lt;EOF | kubectl apply -f -
+cat << 'EOF' | kubectl apply -f -
 apiVersion: projectcalico.org/v3
 kind: FelixConfiguration
 metadata:
