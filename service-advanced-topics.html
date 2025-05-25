@@ -43,7 +43,9 @@
             <p>Service 的实现涉及多个组件的协同工作，下面我们将分析这些组件间的详细交互流程：</p>
             
             <div class="diagram-container">
-                <img src="svg/service-components-interaction.svg" alt="Service 组件交互流程" class="diagram">
+                <object type="image/svg+xml" data="svg/service-components-interaction.svg" class="diagram">
+                    Service 组件交互流程
+                </object>
             </div>
             
             <ol>
@@ -636,7 +638,9 @@ sysctl -p /etc/sysctl.d/90-conntrack.conf
             <p>Service 发现依赖于 DNS 查询，优化 DNS 解析可以减少延迟并提高可靠性：</p>
             
             <div class="diagram-container">
-                <img src="svg/node-local-dns.svg" alt="NodeLocal DNSCache 架构" class="diagram">
+                <object type="image/svg+xml" data="svg/node-local-dns.svg" class="diagram">
+                    NodeLocal DNSCache 架构
+                </object>
             </div>
             
             <p><strong>NodeLocal DNSCache</strong> 是 Kubernetes 提供的一种优化方案，在每个节点上运行一个 DNS 缓存，减少到 kube-dns/CoreDNS 的请求：</p>

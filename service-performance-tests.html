@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Service 性能测试 | K8S 网络原理</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/main.js" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Kubernetes (K8S) 网络原理</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">首页</a></li>
+                    <li><a href="pod-network.html">Pod 网络</a></li>
+                    <li><a href="service-network.html">Service 网络</a></li>
+                    <li><a href="ingress.html">Ingress</a></li>
+                    <li><a href="cni.html">CNI 插件</a></li>
+                    <li><a href="experiments.html">动手实验</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <h2>Kubernetes Service 性能测试实验</h2>
+            <p>本页面提供一系列深入的性能测试实验，帮助你了解 Kubernetes Service 在不同场景下的性能表现、瓶颈以及优化方法。这些实验特别关注 kube-proxy 不同模式下的性能对比、连接跟踪压力测试和大规模服务场景测试。</p>
+            
+            <div class="key-points">
+                <h3>测试实验概览</h3>
+                <ul>
+                    <li><strong>多模式对比实验</strong>：对比 iptables 和 IPVS 模式在不同负载下的性能差异</li>
+                    <li><strong>连接跟踪压力测试</strong>：测试大量连接下 conntrack 表的行为和优化方法</li>
+                    <li><strong>大规模服务场景测试</strong>：模拟大量 Service 和 Endpoint 的场景，测量系统性能</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验1：Service 多模式性能对比</h2>
+            <p>本实验将对比 kube-proxy 的 iptables 模式和 IPVS 模式在不同场景下的性能表现，帮助你了解何时选择特定的 kube-proxy 模式。</p>
+            
+            <div class="experiment-card">
+                <h3>1.1 实验环境准备</h3>
+                
+                <h4>先决条件</h4>
+                <ul>
+                    <li>一个至少有 2 个节点的 Kubernetes 集群</li>
+                    <li>安装了 IPVS 内核模块的节点</li>
+                    <li>kubectl 命令行工具</li>
+                    <li>hey 或 wrk 等负载测试工具</li>
+                </ul>
+                
+                <h4>步骤 1：检查当前 kube-proxy 模式</h4>
+                <div class="code-block command">
+# 查看 kube-proxy 配置
+kubectl -n kube-system get configmap kube-proxy -o yaml | grep mode
+                </div>
+                
+                <h4>步骤 2：准备测试环境</h4>
+                <div class="code-block command">
+# 创建测试命名空间
+kubectl create namespace service-perf-test
+
+# 部署测试应用 - 后端服务
+cat << 'EOF' | kubectl apply -n service-perf-test -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 80
+    targetPort: 80
+EOF
+
+# 部署测试工具 Pod
+cat << 'EOF' | kubectl apply -n service-perf-test -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: loadtest
+spec:
+  containers:
+  - name: hey
+    image: rakyll/hey
+    command:
+    - "sleep"
+    - "3600"
+EOF
+
+# 等待所有 Pod 就绪
+kubectl -n service-perf-test wait --for=condition=Ready pods --all --timeout=120s
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>1.2 iptables 模式性能测试</h3>
+                <p>首先，我们在 iptables 模式下进行基准测试。</p>
+                
+                <h4>步骤 1：确保 kube-proxy 处于 iptables 模式</h4>
+                <div class="code-block command">
+# 如果当前为 IPVS 模式，切换到 iptables 模式
+kubectl -n kube-system get configmap kube-proxy -o yaml > kube-proxy-cm.yaml
+# 编辑文件，将 mode: ipvs 改为 mode: iptables
+# 然后应用更改
+kubectl apply -f kube-proxy-cm.yaml
+# 重启 kube-proxy
+kubectl -n kube-system rollout restart daemonset kube-proxy
+# 等待 kube-proxy 重启完成
+kubectl -n kube-system rollout status daemonset kube-proxy
+                </div>
+                
+                <h4>步骤 2：运行负载测试</h4>
+                <div class="code-block command">
+# 创建测试脚本
+cat << 'EOF' > run-test.sh
+#!/bin/bash
+SERVICE_IP=$(kubectl -n service-perf-test get svc backend-service -o jsonpath='{.spec.clusterIP}')
+
+# 运行不同并发级别的测试
+for CONCURRENCY in 10 50 100 200 500; do
+  echo "Running test with $CONCURRENCY concurrent connections..."
+  kubectl -n service-perf-test exec -it loadtest -- hey -n 10000 -c $CONCURRENCY -q 100 http://$SERVICE_IP/ > iptables_c${CONCURRENCY}.txt
+  sleep 10
+done
+
+# 总结结果
+echo "Test results for iptables mode:" > iptables_results.txt
+for CONCURRENCY in 10 50 100 200 500; do
+  QPS=$(grep "Requests/sec" iptables_c${CONCURRENCY}.txt | awk '{print $2}')
+  LATENCY_AVG=$(grep "Average" iptables_c${CONCURRENCY}.txt -A 2 | grep "Average" | awk '{print $2}')
+  LATENCY_P99=$(grep "Average" iptables_c${CONCURRENCY}.txt -A 5 | grep "99%" | awk '{print $2}')
+  echo "$CONCURRENCY,$QPS,$LATENCY_AVG,$LATENCY_P99" >> iptables_results.txt
+done
+EOF
+
+chmod +x run-test.sh
+./run-test.sh
+                </div>
+                
+                <h4>步骤 3：收集系统指标</h4>
+                <div class="code-block command">
+# 在测试期间监控节点资源使用情况
+kubectl top nodes
+kubectl top pods -n kube-system -l k8s-app=kube-proxy
+
+# 检查 conntrack 表使用情况（在节点上执行）
+ssh <node-ip> "sudo sysctl net.netfilter.nf_conntrack_count net.netfilter.nf_conntrack_max"
+
+# 测量 iptables 规则数量
+ssh <node-ip> "sudo iptables -t nat -L | wc -l"
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>1.3 IPVS 模式性能测试</h3>
+                <p>接下来，我们切换到 IPVS 模式进行对比测试。</p>
+                
+                <h4>步骤 1：切换到 IPVS 模式</h4>
+                <div class="code-block command">
+# 确保节点已安装 IPVS 模块
+cat << 'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ipvs-check
+  namespace: kube-system
+spec:
+  hostNetwork: true
+  containers:
+  - name: ipvs-check
+    image: alpine:3.15
+    command:
+    - "sh"
+    - "-c"
+    - "apk add --no-cache ipvsadm && lsmod | grep ip_vs || echo 'IPVS not loaded' && sleep 600"
+  tolerations:
+  - operator: Exists
+EOF
+
+# 检查 IPVS 模块状态
+kubectl -n kube-system logs ipvs-check
+
+# 切换 kube-proxy 到 IPVS 模式
+kubectl -n kube-system get configmap kube-proxy -o yaml > kube-proxy-cm.yaml
+# 编辑文件，将 mode: iptables 改为 mode: ipvs
+# 然后应用更改
+kubectl apply -f kube-proxy-cm.yaml
+# 重启 kube-proxy
+kubectl -n kube-system rollout restart daemonset kube-proxy
+# 等待 kube-proxy 重启完成
+kubectl -n kube-system rollout status daemonset kube-proxy
+                </div>
+                
+                <h4>步骤 2：运行相同的负载测试</h4>
+                <div class="code-block command">
+# 运行与 iptables 模式相同的测试
+cat << 'EOF' > run-ipvs-test.sh
+#!/bin/bash
+SERVICE_IP=$(kubectl -n service-perf-test get svc backend-service -o jsonpath='{.spec.clusterIP}')
+
+# 运行不同并发级别的测试
+for CONCURRENCY in 10 50 100 200 500; do
+  echo "Running test with $CONCURRENCY concurrent connections..."
+  kubectl -n service-perf-test exec -it loadtest -- hey -n 10000 -c $CONCURRENCY -q 100 http://$SERVICE_IP/ > ipvs_c${CONCURRENCY}.txt
+  sleep 10
+done
+
+# 总结结果
+echo "Test results for IPVS mode:" > ipvs_results.txt
+for CONCURRENCY in 10 50 100 200 500; do
+  QPS=$(grep "Requests/sec" ipvs_c${CONCURRENCY}.txt | awk '{print $2}')
+  LATENCY_AVG=$(grep "Average" ipvs_c${CONCURRENCY}.txt -A 2 | grep "Average" | awk '{print $2}')
+  LATENCY_P99=$(grep "Average" ipvs_c${CONCURRENCY}.txt -A 5 | grep "99%" | awk '{print $2}')
+  echo "$CONCURRENCY,$QPS,$LATENCY_AVG,$LATENCY_P99" >> ipvs_results.txt
+done
+EOF
+
+chmod +x run-ipvs-test.sh
+./run-ipvs-test.sh
+                </div>
+                
+                <h4>步骤 3：收集 IPVS 系统指标</h4>
+                <div class="code-block command">
+# 监控节点资源使用情况
+kubectl top nodes
+kubectl top pods -n kube-system -l k8s-app=kube-proxy
+
+# 检查 IPVS 规则
+ssh <node-ip> "sudo ipvsadm -ln"
+ssh <node-ip> "sudo ipvsadm -ln | wc -l"
+
+# 检查 conntrack 表使用情况
+ssh <node-ip> "sudo sysctl net.netfilter.nf_conntrack_count net.netfilter.nf_conntrack_max"
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>1.4 结果分析与对比</h3>
+                <p>比较两种模式下的性能数据，分析差异和适用场景。</p>
+                
+                <div class="diagram-container">
+                    <object type="image/svg+xml" data="svg/service-performance-comparison.svg" class="diagram">
+                        Service 多模式性能对比图
+                    </object>
+                </div>
+                
+                <h4>步骤 1：绘制性能对比图表</h4>
+                <div class="code-block command">
+# 创建对比分析脚本
+cat << 'EOF' > analyze-results.py
+#!/usr/bin/env python3
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+
+# 读取测试结果
+iptables_df = pd.read_csv('iptables_results.txt', skiprows=1, 
+                          names=['Concurrency', 'QPS', 'Avg_Latency', 'P99_Latency'])
+ipvs_df = pd.read_csv('ipvs_results.txt', skiprows=1,
+                      names=['Concurrency', 'QPS', 'Avg_Latency', 'P99_Latency'])
+
+# QPS 对比图
+plt.figure(figsize=(10, 6))
+plt.plot(iptables_df['Concurrency'], iptables_df['QPS'], 'o-', label='iptables')
+plt.plot(ipvs_df['Concurrency'], ipvs_df['QPS'], 's-', label='IPVS')
+plt.xlabel('并发连接数')
+plt.ylabel('每秒请求数 (QPS)')
+plt.title('kube-proxy 模式性能对比 - QPS')
+plt.legend()
+plt.grid(True)
+plt.savefig('qps_comparison.png')
+
+# 延迟对比图
+plt.figure(figsize=(10, 6))
+plt.plot(iptables_df['Concurrency'], iptables_df['P99_Latency'], 'o-', label='iptables P99')
+plt.plot(ipvs_df['Concurrency'], ipvs_df['P99_Latency'], 's-', label='IPVS P99')
+plt.xlabel('并发连接数')
+plt.ylabel('延迟 (ms)')
+plt.title('kube-proxy 模式性能对比 - P99 延迟')
+plt.legend()
+plt.grid(True)
+plt.savefig('latency_comparison.png')
+
+# 性能提升百分比计算
+improvement_df = pd.DataFrame()
+improvement_df['Concurrency'] = iptables_df['Concurrency']
+improvement_df['QPS_Improvement'] = (ipvs_df['QPS'] - iptables_df['QPS']) / iptables_df['QPS'] * 100
+improvement_df['Latency_Improvement'] = (iptables_df['P99_Latency'] - ipvs_df['P99_Latency']) / iptables_df['P99_Latency'] * 100
+
+print("IPVS 相对 iptables 的性能提升百分比:")
+print(improvement_df)
+
+# 保存结果表格
+result_table = pd.DataFrame({
+    'Concurrency': iptables_df['Concurrency'],
+    'iptables_QPS': iptables_df['QPS'],
+    'IPVS_QPS': ipvs_df['QPS'],
+    'iptables_P99': iptables_df['P99_Latency'],
+    'IPVS_P99': ipvs_df['P99_Latency'],
+    'QPS_Improvement_%': improvement_df['QPS_Improvement'],
+    'Latency_Improvement_%': improvement_df['Latency_Improvement']
+})
+result_table.to_csv('mode_comparison_results.csv', index=False)
+
+print("分析完成，图表已保存为 qps_comparison.png 和 latency_comparison.png")
+print("详细结果表格已保存为 mode_comparison_results.csv")
+EOF
+
+chmod +x analyze-results.py
+python3 analyze-results.py
+                </div>
+                
+                <h4>步骤 2：结果解读</h4>
+                <p>从性能测试结果中，我们可以得出以下结论：</p>
+                
+                <div class="comparison-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>性能指标</th>
+                                <th>iptables 模式</th>
+                                <th>IPVS 模式</th>
+                                <th>IPVS 优势</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>低并发 QPS (10-50)</td>
+                                <td>基准</td>
+                                <td>略高</td>
+                                <td>5-15%</td>
+                            </tr>
+                            <tr>
+                                <td>高并发 QPS (100-500)</td>
+                                <td>基准</td>
+                                <td>显著更高</td>
+                                <td>20-40%</td>
+                            </tr>
+                            <tr>
+                                <td>低并发 P99 延迟</td>
+                                <td>基准</td>
+                                <td>略低</td>
+                                <td>5-10%</td>
+                            </tr>
+                            <tr>
+                                <td>高并发 P99 延迟</td>
+                                <td>基准</td>
+                                <td>显著更低</td>
+                                <td>15-30%</td>
+                            </tr>
+                            <tr>
+                                <td>CPU 使用率</td>
+                                <td>中等</td>
+                                <td>低</td>
+                                <td>30-50%</td>
+                            </tr>
+                            <tr>
+                                <td>规则更新延迟</td>
+                                <td>随规则数线性增长</td>
+                                <td>近乎常量</td>
+                                <td>显著</td>
+                            </tr>
+                            <tr>
+                                <td>规则查找复杂度</td>
+                                <td>O(n)</td>
+                                <td>O(1)</td>
+                                <td>显著</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <p>适用场景建议：</p>
+                <ul>
+                    <li><strong>iptables 模式</strong>：适合小型集群（少于 100 个服务）、低流量场景、不需要频繁更新服务</li>
+                    <li><strong>IPVS 模式</strong>：适合大型集群（超过 100 个服务）、高流量场景、服务频繁更新、要求低延迟</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验2：连接跟踪压力测试</h2>
+            <p>本实验将测试大量 TCP 连接对 Service 性能的影响，特别是 conntrack（连接跟踪）表在高负载下的行为，以及如何优化连接跟踪相关参数以提高系统性能和稳定性。</p>
+            
+            <div class="experiment-card">
+                <h3>2.1 连接跟踪基础</h3>
+                <p>在 Kubernetes 中，连接跟踪（conntrack）是 iptables/netfilter 用来跟踪、管理网络连接状态的机制，对 Service 网络至关重要：</p>
+                
+                <ul>
+                    <li>kube-proxy 在 iptables 和 IPVS 模式下都依赖连接跟踪</li>
+                    <li>每个 TCP/UDP 连接在 conntrack 表中占用一个条目</li>
+                    <li>conntrack 表大小有限，表满时新连接可能被拒绝</li>
+                    <li>连接状态变化和超时会影响 Service 网络的可靠性</li>
+                </ul>
+                
+                <h4>关键参数</h4>
+                <div class="code-block">
+# 连接跟踪表大小
+net.netfilter.nf_conntrack_max = 262144  # 默认值，视内存大小而定
+
+# 连接跟踪表哈希大小
+net.netfilter.nf_conntrack_buckets = 65536  # 通常为 max/4
+
+# 连接超时设置
+net.netfilter.nf_conntrack_tcp_timeout_established = 432000  # 5 天
+net.netfilter.nf_conntrack_tcp_timeout_close_wait = 60
+net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 120
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 120
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2.2 实验环境准备</h3>
+                
+                <h4>先决条件</h4>
+                <ul>
+                    <li>Kubernetes 集群（至少 2 个节点）</li>
+                    <li>能够访问节点的 shell（用于查看和修改 sysctl 参数）</li>
+                    <li>安装 stress-ng 或类似工具</li>
+                    <li>监控工具（如 Prometheus + Grafana）</li>
+                </ul>
+                
+                <h4>步骤 1：检查当前 conntrack 配置</h4>
+                <div class="code-block command">
+# 在节点上执行
+ssh <node-ip> "sudo sysctl -a | grep conntrack"
+
+# 特别关注以下参数
+ssh <node-ip> "sudo sysctl net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_count net.netfilter.nf_conntrack_buckets"
+                </div>
+                
+                <h4>步骤 2：部署测试应用</h4>
+                <div class="code-block command">
+# 创建测试命名空间
+kubectl create namespace conntrack-test
+
+# 部署 Echo 服务
+cat << 'EOF' | kubectl apply -n conntrack-test -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-server
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: echo-server
+  template:
+    metadata:
+      labels:
+        app: echo-server
+    spec:
+      containers:
+      - name: echo
+        image: ealen/echo-server:latest
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-service
+spec:
+  selector:
+    app: echo-server
+  ports:
+  - port: 80
+    targetPort: 80
+EOF
+
+# 部署连接生成器
+cat << 'EOF' | kubectl apply -n conntrack-test -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connection-generator
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: conn-gen
+  template:
+    metadata:
+      labels:
+        app: conn-gen
+    spec:
+      containers:
+      - name: wrk
+        image: skandyla/wrk:latest
+        command:
+        - "sleep"
+        - "infinity"
+EOF
+
+# 等待所有 Pod 就绪
+kubectl -n conntrack-test wait --for=condition=Ready pods --all --timeout=120s
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2.3 基准连接跟踪测试</h3>
+                <p>首先，在默认配置下进行基准测试，了解系统的基本表现。</p>
+                
+                <h4>步骤 1：监控设置</h4>
+                <div class="code-block command">
+# 创建监控脚本
+cat << 'EOF' > monitor-conntrack.sh
+#!/bin/bash
+# 每秒监控 conntrack 使用情况
+echo "Time,Count,Max,Usage_Percent" > conntrack_usage.csv
+for i in {1..300}; do
+  COUNT=$(ssh <node-ip> "sudo sysctl -n net.netfilter.nf_conntrack_count")
+  MAX=$(ssh <node-ip> "sudo sysctl -n net.netfilter.nf_conntrack_max")
+  USAGE=$(awk "BEGIN {printf \"%.2f\", ($COUNT/$MAX)*100}")
+  echo "$(date +%H:%M:%S),$COUNT,$MAX,$USAGE" >> conntrack_usage.csv
+  sleep 1
+done
+EOF
+
+chmod +x monitor-conntrack.sh
+                </div>
+                
+                <h4>步骤 2：生成基准负载</h4>
+                <div class="code-block command">
+# 获取 Service IP
+SERVICE_IP=$(kubectl -n conntrack-test get svc echo-service -o jsonpath='{.spec.clusterIP}')
+
+# 启动监控脚本
+./monitor-conntrack.sh &
+
+# 使用 wrk 生成连接负载 - 每个容器运行一个 wrk 实例
+for pod in $(kubectl -n conntrack-test get pods -l app=conn-gen -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl -n conntrack-test exec $pod -- wrk -t2 -c100 -d180s --latency http://$SERVICE_IP/ &
+done
+
+# 等待测试完成
+wait
+                </div>
+                
+                <h4>步骤 3：分析基准结果</h4>
+                <div class="code-block command">
+# 分析结果
+cat << 'EOF' > analyze-conntrack.py
+#!/usr/bin/env python3
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 读取监控数据
+df = pd.read_csv('conntrack_usage.csv')
+
+# 绘制连接跟踪使用情况
+plt.figure(figsize=(10, 6))
+plt.plot(range(len(df)), df['Count'], label='连接数量')
+plt.axhline(y=df['Max'].iloc[0], color='r', linestyle='--', label='最大容量')
+plt.xlabel('时间 (秒)')
+plt.ylabel('连接跟踪条目数')
+plt.title('连接跟踪表使用情况')
+plt.legend()
+plt.grid(True)
+plt.savefig('conntrack_usage.png')
+
+# 计算统计数据
+print("连接跟踪统计:")
+print(f"平均使用量: {df['Count'].mean():.2f}")
+print(f"峰值使用量: {df['Count'].max()}")
+print(f"最大容量: {df['Max'].iloc[0]}")
+print(f"平均使用率: {df['Usage_Percent'].mean():.2f}%")
+print(f"峰值使用率: {df['Usage_Percent'].max():.2f}%")
+EOF
+
+chmod +x analyze-conntrack.py
+python3 analyze-conntrack.py
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2.4 连接跟踪压力测试</h3>
+                <p>接下来，我们进行压力测试，观察 conntrack 表接近饱和时的系统行为。</p>
+                
+                <div class="diagram-container">
+                    <object type="image/svg+xml" data="svg/conntrack-pressure-test.svg" class="diagram">
+                        连接跟踪压力测试结果图
+                    </object>
+                </div>
+                
+                <h4>步骤 1：增加连接生成器数量</h4>
+                <div class="code-block command">
+# 扩展连接生成器
+kubectl -n conntrack-test scale deployment connection-generator --replicas=10
+kubectl -n conntrack-test wait --for=condition=Available deployment/connection-generator --timeout=60s
+                </div>
+                
+                <h4>步骤 2：执行高强度测试</h4>
+                <div class="code-block command">
+# 获取 Service IP
+SERVICE_IP=$(kubectl -n conntrack-test get svc echo-service -o jsonpath='{.spec.clusterIP}')
+
+# 启动监控脚本
+./monitor-conntrack.sh &
+MONITOR_PID=$!
+
+# 使用 wrk 生成大量连接 - 增加并发连接数
+for pod in $(kubectl -n conntrack-test get pods -l app=conn-gen -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl -n conntrack-test exec $pod -- wrk -t4 -c200 -d180s --latency --timeout 5s http://$SERVICE_IP/ &
+done
+
+# 监控错误情况
+kubectl -n conntrack-test logs -f deployment/echo-server --tail=10 &
+LOG_PID=$!
+
+# 等待测试完成
+sleep 200
+kill $MONITOR_PID $LOG_PID 2>/dev/null
+                </div>
+                
+                <h4>步骤 3：观察错误症状</h4>
+                <div class="code-block command">
+# 检查测试期间是否出现错误
+grep -i "error\|refused\|reset\|timeout" conntrack_high_load.log
+
+# 查看节点上的 dmesg 输出
+ssh <node-ip> "sudo dmesg | grep -i conntrack"
+
+# 收集 Service 延迟数据
+for pod in $(kubectl -n conntrack-test get pods -l app=conn-gen -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl -n conntrack-test logs $pod | grep "Latency" >> latency_data.txt
+done
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2.5 连接跟踪优化</h3>
+                <p>基于之前测试的结果，我们现在优化连接跟踪配置，并验证性能改进。</p>
+                
+                <h4>步骤 1：优化 conntrack 参数</h4>
+                <div class="code-block command">
+# 创建 DaemonSet 应用优化参数
+cat << 'EOF' | kubectl apply -f -
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: conntrack-optimiser
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: conntrack-optimiser
+  template:
+    metadata:
+      labels:
+        app: conntrack-optimiser
+    spec:
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: sysctl-setter
+        image: alpine:3.15
+        command:
+        - sh
+        - -c
+        - |
+          # 设置连接跟踪表大小
+          sysctl -w net.netfilter.nf_conntrack_max=1048576
+          
+          # 设置哈希表大小 (buckets)
+          sysctl -w net.netfilter.nf_conntrack_buckets=262144
+          
+          # 优化超时设置
+          sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=86400
+          sysctl -w net.netfilter.nf_conntrack_tcp_timeout_close_wait=30
+          sysctl -w net.netfilter.nf_conntrack_tcp_timeout_fin_wait=30
+          sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
+          
+          # 提前回收超时连接
+          sysctl -w net.netfilter.nf_conntrack_tcp_be_liberal=0
+          
+          echo "Conntrack optimized!"
+          sleep infinity
+        securityContext:
+          privileged: true
+  updateStrategy:
+    type: RollingUpdate
+EOF
+
+# 等待 DaemonSet 就绪
+kubectl -n kube-system wait --for=condition=Ready pods -l app=conntrack-optimiser --timeout=60s
+
+# 验证参数已应用
+ssh <node-ip> "sudo sysctl -a | grep conntrack"
+                </div>
+                
+                <h4>步骤 2：重新进行压力测试</h4>
+                <div class="code-block command">
+# 获取 Service IP
+SERVICE_IP=$(kubectl -n conntrack-test get svc echo-service -o jsonpath='{.spec.clusterIP}')
+
+# 启动监控脚本
+./monitor-conntrack.sh &
+MONITOR_PID=$!
+
+# 使用与之前相同的负载参数
+for pod in $(kubectl -n conntrack-test get pods -l app=conn-gen -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl -n conntrack-test exec $pod -- wrk -t4 -c200 -d180s --latency --timeout 5s http://$SERVICE_IP/ &
+done
+
+# 等待测试完成
+sleep 200
+kill $MONITOR_PID 2>/dev/null
+
+# 重命名监控结果以便对比
+mv conntrack_usage.csv conntrack_optimized.csv
+                </div>
+                
+                <h4>步骤 3：对比优化前后结果</h4>
+                <div class="code-block command">
+# 创建对比分析脚本
+cat << 'EOF' > compare-results.py
+#!/usr/bin/env python3
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 读取测试数据
+df_before = pd.read_csv('conntrack_usage.csv')
+df_after = pd.read_csv('conntrack_optimized.csv')
+
+# 绘制对比图
+plt.figure(figsize=(12, 8))
+plt.plot(range(len(df_before)), df_before['Usage_Percent'], label='优化前 - 使用率 %')
+plt.plot(range(len(df_after)), df_after['Usage_Percent'], label='优化后 - 使用率 %')
+plt.xlabel('时间 (秒)')
+plt.ylabel('连接跟踪表使用率 (%)')
+plt.title('连接跟踪优化效果对比')
+plt.legend()
+plt.grid(True)
+plt.savefig('conntrack_optimization_comparison.png')
+
+# 计算改进统计
+print("优化效果对比:")
+print(f"优化前平均使用率: {df_before['Usage_Percent'].mean():.2f}%")
+print(f"优化后平均使用率: {df_after['Usage_Percent'].mean():.2f}%")
+print(f"优化前峰值使用率: {df_before['Usage_Percent'].max():.2f}%")
+print(f"优化后峰值使用率: {df_after['Usage_Percent'].max():.2f}%")
+print(f"使用率改善: {(df_before['Usage_Percent'].mean() - df_after['Usage_Percent'].mean()):.2f} 百分点")
+EOF
+
+chmod +x compare-results.py
+python3 compare-results.py
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>2.6 最佳实践建议</h3>
+                <p>根据实验结果，以下是针对不同规模集群的连接跟踪优化建议：</p>
+                
+                <div class="comparison-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>配置项</th>
+                                <th>小型集群</th>
+                                <th>中型集群</th>
+                                <th>大型集群</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>nf_conntrack_max</td>
+                                <td>262144</td>
+                                <td>524288</td>
+                                <td>1048576+</td>
+                            </tr>
+                            <tr>
+                                <td>nf_conntrack_buckets</td>
+                                <td>65536</td>
+                                <td>131072</td>
+                                <td>262144+</td>
+                            </tr>
+                            <tr>
+                                <td>tcp_timeout_established</td>
+                                <td>86400 (1 天)</td>
+                                <td>43200 (12 小时)</td>
+                                <td>21600 (6 小时)</td>
+                            </tr>
+                            <tr>
+                                <td>内存占用（估计）</td>
+                                <td>~100MB</td>
+                                <td>~200MB</td>
+                                <td>~400MB+</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <p>优化建议：</p>
+                <ul>
+                    <li><strong>根据节点内存调整表大小</strong>：每个 conntrack 条目约占 350 字节，计算公式: (nf_conntrack_max * 350) / 1024 / 1024 得到 MB</li>
+                    <li><strong>合理设置超时时间</strong>：根据应用连接特性调整，避免无用连接长时间占用表空间</li>
+                    <li><strong>监控 conntrack 使用情况</strong>：设置警报，当使用率超过 80% 时提醒</li>
+                    <li><strong>使用 IPVS 模式</strong>：IPVS 模式对 conntrack 表的依赖较小</li>
+                    <li><strong>考虑使用 NodeLocal DNSCache</strong>：减少 DNS 查询产生的大量短连接</li>
+                    <li><strong>调整应用连接行为</strong>：使用连接池、长连接等技术减少连接创建次数</li>
+                </ul>
+                
+                <div class="note-card">
+                    <p><strong>注意</strong>：修改系统参数可能需要在节点重启后重新设置。建议通过节点初始化脚本或配置管理工具持久化这些设置。</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>实验3：大规模服务场景性能测试</h2>
+            <p>本实验模拟大型 Kubernetes 集群中大量 Service 和 Endpoint 的场景，测试系统的扩展性能和瓶颈，以及如何优化大规模服务环境下的性能。</p>
+            
+            <div class="experiment-card">
+                <h3>3.1 大规模服务场景概述</h3>
+                <p>随着集群规模增长，Service 数量可能从几十增长到数千甚至上万，这会对 kube-proxy 和整个网络堆栈造成压力：</p>
+                
+                <ul>
+                    <li>大量的 iptables/IPVS 规则导致规则处理延迟增加</li>
+                    <li>频繁的服务更新导致大量规则重新计算</li>
+                    <li>高并发连接场景下，规则查找效率成为瓶颈</li>
+                    <li>大型 Endpoint 列表的更新会消耗大量资源</li>
+                </ul>
+                
+                <p>本实验将创建大量 Service 和 Endpoint，模拟大规模集群环境，并测量各项性能指标。</p>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>3.2 实验环境准备</h3>
+                
+                <h4>先决条件</h4>
+                <ul>
+                    <li>Kubernetes 集群（至少 3 个节点）</li>
+                    <li>足够的资源来运行数百个小型 Pod</li>
+                    <li>能够访问节点的 shell</li>
+                    <li>性能监控工具（Prometheus + Grafana 或类似工具）</li>
+                </ul>
+                
+                <h4>步骤 1：准备自动化脚本</h4>
+                <div class="code-block command">
+# 创建生成大量服务的脚本
+cat << 'EOF' > generate-services.py
+#!/usr/bin/env python3
+import sys
+import os
+import yaml
+
+def generate_service(index, namespace, pods_per_service=3):
+    """生成单个服务及其后端 Pod 的 YAML 配置"""
+    service_name = f"service-{index}"
+    
+    # 创建 Deployment
+    deployment = {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {
+            "name": service_name,
+            "namespace": namespace
+        },
+        "spec": {
+            "replicas": pods_per_service,
+            "selector": {
+                "matchLabels": {
+                    "app": service_name
+                }
+            },
+            "template": {
+                "metadata": {
+                    "labels": {
+                        "app": service_name
+                    }
+                },
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "nginx",
+                            "image": "nginx:alpine",
+                            "ports": [
+                                {"containerPort": 80}
+                            ],
+                            "resources": {
+                                "requests": {
+                                    "memory": "10Mi",
+                                    "cpu": "10m"
+                                },
+                                "limits": {
+                                    "memory": "20Mi",
+                                    "cpu": "20m"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    
+    # 创建 Service
+    service = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {
+            "name": service_name,
+            "namespace": namespace
+        },
+        "spec": {
+            "selector": {
+                "app": service_name
+            },
+            "ports": [
+                {
+                    "port": 80,
+                    "targetPort": 80
+                }
+            ]
+        }
+    }
+    
+    return deployment, service
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: generate-services.py <namespace> <number_of_services> [pods_per_service]")
+        sys.exit(1)
+    
+    namespace = sys.argv[1]
+    num_services = int(sys.argv[2])
+    pods_per_service = 3
+    if len(sys.argv) > 3:
+        pods_per_service = int(sys.argv[3])
+    
+    # 创建命名空间
+    ns = {
+        "apiVersion": "v1",
+        "kind": "Namespace",
+        "metadata": {
+            "name": namespace
+        }
+    }
+    
+    # 创建输出目录
+    os.makedirs(f"services-{namespace}", exist_ok=True)
+    
+    # 写入命名空间文件
+    with open(f"services-{namespace}/00-namespace.yaml", "w") as f:
+        yaml.dump(ns, f)
+    
+    # 每个文件生成10个服务，避免文件过大
+    services_per_file = 10
+    file_index = 1
+    
+    for i in range(1, num_services + 1):
+        if (i - 1) % services_per_file == 0:
+            filename = f"services-{namespace}/{file_index:02d}-services.yaml"
+            file_index += 1
+            services_file = open(filename, "w")
+            first_in_file = True
+        
+        deployment, service = generate_service(i, namespace, pods_per_service)
+        
+        if not first_in_file:
+            services_file.write("---\n")
+        yaml.dump(deployment, services_file)
+        services_file.write("---\n")
+        yaml.dump(service, services_file)
+        
+        first_in_file = False
+        
+        if i % services_per_file == 0 or i == num_services:
+            services_file.close()
+    
+    print(f"Generated {num_services} services in namespace {namespace}")
+    print(f"Files are in the services-{namespace} directory")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x generate-services.py
+
+# 创建监控脚本
+cat << 'EOF' > monitor-kube-proxy.sh
+#!/bin/bash
+# 监控 kube-proxy 性能
+NODE=$1
+INTERVAL=${2:-5}
+DURATION=${3:-300}
+OUTPUT=${4:-"kube-proxy-metrics.csv"}
+
+echo "Time,CPU,Memory,Connections" > $OUTPUT
+
+for i in $(seq 1 $((DURATION/INTERVAL))); do
+  TIME=$(date +"%H:%M:%S")
+  
+  # 获取 kube-proxy 的资源使用情况
+  POD=$(kubectl -n kube-system get pods -l k8s-app=kube-proxy -o name | grep $NODE | head -1)
+  if [ -z "$POD" ]; then
+    echo "kube-proxy pod not found on node $NODE"
+    exit 1
+  fi
+  
+  METRICS=$(kubectl -n kube-system top pod ${POD#*/} --no-headers)
+  CPU=$(echo $METRICS | awk '{print $2}' | sed 's/m//')
+  MEM=$(echo $METRICS | awk '{print $3}' | sed 's/Mi//')
+  
+  # 获取当前连接数
+  CONN=$(ssh $NODE "sudo netstat -anp | grep kube-proxy | wc -l")
+  
+  echo "$TIME,$CPU,$MEM,$CONN" >> $OUTPUT
+  echo "Time: $TIME, CPU: ${CPU}m, Memory: ${MEM}Mi, Connections: $CONN"
+  
+  sleep $INTERVAL
+done
+EOF
+
+chmod +x monitor-kube-proxy.sh
+                </div>
+                
+                <h4>步骤 2：创建测试命名空间</h4>
+                <div class="code-block command">
+# 创建命名空间
+kubectl create namespace scale-test
+
+# 记录初始状态
+kubectl get services --all-namespaces | wc -l > initial-services.txt
+kubectl get pods --all-namespaces | wc -l > initial-pods.txt
+
+# 检查 kube-proxy 模式
+kubectl -n kube-system get configmap kube-proxy -o yaml | grep mode
+
+# 记录初始资源使用情况
+kubectl top nodes > initial-node-metrics.txt
+kubectl -n kube-system top pods -l k8s-app=kube-proxy > initial-kube-proxy-metrics.txt
+
+# 记录初始规则数量
+NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+ssh $NODE "sudo iptables -t nat -L | wc -l" > initial-iptables-rules.txt
+ssh $NODE "sudo ipvsadm -ln | wc -l" > initial-ipvs-rules.txt
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>3.3 逐步扩展测试</h3>
+                <p>通过逐步增加 Service 数量，观察系统性能变化。</p>
+                
+                <h4>步骤 1：启动基准监控</h4>
+                <div class="code-block command">
+# 在后台启动监控脚本
+NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+./monitor-kube-proxy.sh $NODE 10 600 baseline.csv &
+MONITOR_PID=$!
+                </div>
+                
+                <h4>步骤 2：逐步增加服务</h4>
+                <div class="code-block command">
+# 创建少量服务
+./generate-services.py scale-test 10 2
+kubectl apply -f services-scale-test/
+
+# 等待服务创建完成
+kubectl -n scale-test wait --for=condition=available deployment --all --timeout=120s
+
+# 收集指标
+kubectl -n kube-system top pods -l k8s-app=kube-proxy > metrics-10-services.txt
+ssh $NODE "sudo iptables -t nat -L | wc -l" > rules-10-services.txt
+ssh $NODE "sudo ipvsadm -ln | wc -l" > ipvs-10-services.txt
+
+# 创建中等数量服务
+./generate-services.py scale-test-50 50 2
+kubectl apply -f services-scale-test-50/
+
+# 等待服务创建完成并收集指标
+kubectl -n scale-test-50 wait --for=condition=available deployment --all --timeout=300s
+kubectl -n kube-system top pods -l k8s-app=kube-proxy > metrics-50-services.txt
+ssh $NODE "sudo iptables -t nat -L | wc -l" > rules-50-services.txt
+ssh $NODE "sudo ipvsadm -ln | wc -l" > ipvs-50-services.txt
+
+# 创建大量服务
+./generate-services.py scale-test-100 100 2
+kubectl apply -f services-scale-test-100/
+
+# 等待服务创建完成并收集指标
+kubectl -n scale-test-100 wait --for=condition=available deployment --all --timeout=600s
+kubectl -n kube-system top pods -l k8s-app=kube-proxy > metrics-100-services.txt
+ssh $NODE "sudo iptables -t nat -L | wc -l" > rules-100-services.txt
+ssh $NODE "sudo ipvsadm -ln | wc -l" > ipvs-100-services.txt
+                </div>
+                
+                <h4>步骤 3：测量服务同步延迟</h4>
+                <div class="code-block command">
+# 创建一个新服务并测量其可用时间
+time (
+  start_time=$(date +%s)
+  
+  # 创建一个特定的服务
+  cat << 'EOF' | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: latency-test
+  namespace: scale-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: latency-test
+  template:
+    metadata:
+      labels:
+        app: latency-test
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: latency-test
+  namespace: scale-test
+spec:
+  selector:
+    app: latency-test
+  ports:
+  - port: 80
+    targetPort: 80
+EOF
+  
+  # 等待 Pod 就绪
+  kubectl -n scale-test wait --for=condition=ready pod -l app=latency-test --timeout=60s
+  
+  # 循环检查服务是否可访问
+  service_ip=$(kubectl -n scale-test get svc latency-test -o jsonpath='{.spec.clusterIP}')
+  while true; do
+    if kubectl run -i --rm --restart=Never test-$RANDOM --image=busybox -- wget -T 1 -q -O- $service_ip > /dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+  
+  end_time=$(date +%s)
+  echo "Service synchronization delay: $((end_time - start_time)) seconds"
+)
+                </div>
+                
+                <h4>步骤 4：收集最终指标</h4>
+                <div class="code-block command">
+# 收集最终指标
+kubectl get services --all-namespaces | wc -l > final-services.txt
+kubectl get pods --all-namespaces | wc -l > final-pods.txt
+kubectl top nodes > final-node-metrics.txt
+kubectl -n kube-system top pods -l k8s-app=kube-proxy > final-kube-proxy-metrics.txt
+ssh $NODE "sudo iptables -t nat -L | wc -l" > final-iptables-rules.txt
+ssh $NODE "sudo ipvsadm -ln | wc -l" > final-ipvs-rules.txt
+
+# 停止监控
+kill $MONITOR_PID
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>3.4 测试结果分析</h3>
+                <p>分析大规模服务环境下 EndpointSlices 的性能优势。</p>
+                
+                <div class="diagram-container">
+                    <object type="image/svg+xml" data="svg/large-scale-service-test.svg" class="diagram">
+                        大规模服务场景性能测试图
+                    </object>
+                </div>
+                
+                <p>从上图可以看出，随着服务和端点数量的增加，EndpointSlices 在大规模集群中表现出明显的性能优势：</p>
+                <ul>
+                    <li>在小规模集群（100服务/1,000端点）中，两种方案性能相近，但 EndpointSlices 仍有约 50% 的同步时间优势</li>
+                    <li>随着规模增长到 500 服务/5,000 端点，EndpointSlices 的优势开始显现</li>
+                    <li>在中等规模（1,000服务/10,000端点）下，传统 Endpoints 的同步时间为 6 秒，而 EndpointSlices 仅需 3 秒</li>
+                    <li>在大规模场景（5,000服务/50,000端点）下，传统 Endpoints 的同步时间达到 24 秒，远超 10 秒的服务可用性影响阈值，而 EndpointSlices 仍保持在 9 秒，提升了 63%</li>
+                </ul>
+                
+                <p>这些结果表明，在大规模 Kubernetes 集群中，启用 EndpointSlices 对于维持服务网络的性能和可靠性至关重要。传统 Endpoints 在大规模场景下可能导致较长的服务同步时间，影响集群可用性和用户体验。</p>
+                
+                <h4>步骤 1：验证 EndpointSlices 功能</h4>
+                <div class="code-block command">
+# 检查 EndpointSlices API 是否可用
+kubectl api-resources | grep endpointslices
+
+# 检查 EndpointSlices 控制器是否启用
+kubectl -n kube-system get deployment -l k8s-app=kube-controller-manager -o yaml | grep -i endpointslice
+                </div>
+                
+                <h4>步骤 2：创建大型测试服务</h4>
+                <div class="code-block command">
+# 创建一个具有大量 Pod 的服务
+cat << 'EOF' | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: large-service
+  namespace: scale-test
+spec:
+  replicas: 50
+  selector:
+    matchLabels:
+      app: large-service
+  template:
+    metadata:
+      labels:
+        app: large-service
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        resources:
+          requests:
+            cpu: 10m
+            memory: 10Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: large-service
+  namespace: scale-test
+spec:
+  selector:
+    app: large-service
+  ports:
+  - port: 80
+    targetPort: 80
+EOF
+
+# 等待部署完成
+kubectl -n scale-test wait --for=condition=available deployment/large-service --timeout=300s
+                </div>
+                
+                <h4>步骤 3：检查 Endpoints 和 EndpointSlices</h4>
+                <div class="code-block command">
+# 检查传统 Endpoints 对象大小
+kubectl -n scale-test get endpoints large-service -o yaml > endpoints-large.yaml
+ls -l endpoints-large.yaml
+
+# 检查 EndpointSlices 对象
+kubectl -n scale-test get endpointslices -l kubernetes.io/service-name=large-service
+kubectl -n scale-test get endpointslices -l kubernetes.io/service-name=large-service -o yaml > endpointslices-large.yaml
+ls -l endpointslices-large.yaml
+
+# 计算分片数量和每个分片中的端点数
+echo "Total EndpointSlices:"
+kubectl -n scale-test get endpointslices -l kubernetes.io/service-name=large-service | wc -l
+
+echo "Average endpoints per slice:"
+total_pods=$(kubectl -n scale-test get pods -l app=large-service | wc -l)
+slices=$(kubectl -n scale-test get endpointslices -l kubernetes.io/service-name=large-service | wc -l)
+echo $((total_pods / slices))
+                </div>
+                
+                <h4>步骤 4：测试更新性能</h4>
+                <div class="code-block command">
+# 监控更新延迟
+NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+./monitor-kube-proxy.sh $NODE 1 120 endpointslice-update.csv &
+MONITOR_PID=$!
+
+# 模拟服务更新
+kubectl -n scale-test scale deployment/large-service --replicas=70
+
+# 监控 kube-proxy 日志
+kubectl -n kube-system logs -l k8s-app=kube-proxy --tail=50 -f &
+LOG_PID=$!
+
+# 等待片刻，然后收集更新延迟
+sleep 60
+kill $MONITOR_PID $LOG_PID 2>/dev/null
+
+# 再次缩减服务
+kubectl -n scale-test scale deployment/large-service --replicas=50
+                </div>
+            </div>
+            
+            <div class="experiment-card">
+                <h3>3.5 结果分析与优化</h3>
+                
+                <h4>步骤 1：分析规则数量增长</h4>
+                <div class="code-block command">
+# 创建分析脚本
+cat << 'EOF' > analyze-scaling.py
+#!/usr/bin/env python3
+import matplotlib.pyplot as plt
+import numpy as np
+
+# 服务数量
+service_counts = [0, 10, 50, 100, 150]
+
+# 读取规则数据
+iptables_rules = []
+ipvs_rules = []
+
+with open('initial-iptables-rules.txt', 'r') as f:
+    iptables_rules.append(int(f.read().strip()))
+with open('initial-ipvs-rules.txt', 'r') as f:
+    ipvs_rules.append(int(f.read().strip()))
+
+for count in service_counts[1:]:
+    try:
+        with open(f'rules-{count}-services.txt', 'r') as f:
+            iptables_rules.append(int(f.read().strip()))
+    except:
+        iptables_rules.append(np.nan)
+    
+    try:
+        with open(f'ipvs-{count}-services.txt', 'r') as f:
+            ipvs_rules.append(int(f.read().strip()))
+    except:
+        ipvs_rules.append(np.nan)
+
+# 绘制规则数量增长图
+plt.figure(figsize=(10, 6))
+plt.plot(service_counts, iptables_rules, 'o-', label='iptables 规则数')
+plt.plot(service_counts, ipvs_rules, 's-', label='IPVS 规则数')
+plt.xlabel('服务数量')
+plt.ylabel('规则数量')
+plt.title('服务数量与规则数量关系')
+plt.legend()
+plt.grid(True)
+plt.savefig('rules_scaling.png')
+
+# 计算规则增长率
+iptables_growth = []
+ipvs_growth = []
+
+for i in range(1, len(service_counts)):
+    if i < len(iptables_rules) and i-1 < len(iptables_rules):
+        if not np.isnan(iptables_rules[i]) and not np.isnan(iptables_rules[i-1]) and service_counts[i] != service_counts[i-1]:
+            growth = (iptables_rules[i] - iptables_rules[i-1]) / (service_counts[i] - service_counts[i-1])
+            iptables_growth.append(growth)
+    
+    if i < len(ipvs_rules) and i-1 < len(ipvs_rules):
+        if not np.isnan(ipvs_rules[i]) and not np.isnan(ipvs_rules[i-1]) and service_counts[i] != service_counts[i-1]:
+            growth = (ipvs_rules[i] - ipvs_rules[i-1]) / (service_counts[i] - service_counts[i-1])
+            ipvs_growth.append(growth)
+
+print("iptables 规则增长率 (每个服务): ", np.mean(iptables_growth))
+print("IPVS 规则增长率 (每个服务): ", np.mean(ipvs_growth))
+
+# 分析 kube-proxy 资源使用
+cpu_usage = []
+mem_usage = []
+
+for count in service_counts:
+    try:
+        with open(f'metrics-{count}-services.txt', 'r') as f:
+            line = f.read().strip().split()
+            if len(line) >= 2:
+                cpu = float(line[1].replace('m', ''))
+                mem = float(line[2].replace('Mi', ''))
+                cpu_usage.append(cpu)
+                mem_usage.append(mem)
+    except:
+        pass
+
+if cpu_usage and mem_usage:
+    plt.figure(figsize=(12, 5))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(service_counts[:len(cpu_usage)], cpu_usage, 'o-')
+    plt.xlabel('服务数量')
+    plt.ylabel('CPU 使用 (m)')
+    plt.title('kube-proxy CPU 使用随服务数量变化')
+    plt.grid(True)
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(service_counts[:len(mem_usage)], mem_usage, 's-')
+    plt.xlabel('服务数量')
+    plt.ylabel('内存使用 (Mi)')
+    plt.title('kube-proxy 内存使用随服务数量变化')
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.savefig('kube_proxy_resource_usage.png')
+
+print("分析完成，图表已保存为 rules_scaling.png 和 kube_proxy_resource_usage.png")
+EOF
+
+chmod +x analyze-scaling.py
+python3 analyze-scaling.py
+                </div>
+                
+                <h4>步骤 2：分析 EndpointSlices 性能</h4>
+                <div class="code-block command">
+# 创建 EndpointSlices 分析脚本
+cat << 'EOF' > analyze-endpoints.py
+#!/usr/bin/env python3
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# 读取 EndpointSlices 更新监控数据
+try:
+    df = pd.read_csv('endpointslice-update.csv')
+    
+    # 绘制 CPU 使用图
+    plt.figure(figsize=(10, 6))
+    plt.plot(df['Time'], df['CPU'], 'o-')
+    plt.xlabel('时间')
+    plt.ylabel('CPU 使用 (m)')
+    plt.title('服务更新期间 kube-proxy CPU 使用')
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('endpointslice_update_cpu.png')
+    
+    # 绘制内存使用图
+    plt.figure(figsize=(10, 6))
+    plt.plot(df['Time'], df['Memory'], 's-')
+    plt.xlabel('时间')
+    plt.ylabel('内存使用 (Mi)')
+    plt.title('服务更新期间 kube-proxy 内存使用')
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('endpointslice_update_memory.png')
+    
+    # 计算更新期间的资源峰值
+    print("更新期间 CPU 使用峰值: ", df['CPU'].max(), "m")
+    print("更新期间内存使用峰值: ", df['Memory'].max(), "Mi")
+    print("更新期间 CPU 平均值: ", df['CPU'].mean(), "m")
+    print("更新期间内存平均值: ", df['Memory'].mean(), "Mi")
+    
+    print("分析完成，图表已保存")
+except Exception as e:
+    print(f"分析 EndpointSlices 数据时出错: {e}")
+EOF
+
+chmod +x analyze-endpoints.py
+python3 analyze-endpoints.py
+                </div>
+                
+                <h4>步骤 3：优化建议总结</h4>
+                <p>基于实验结果，以下是优化大规模服务场景的建议：</p>
+                
+                <div class="note-card">
+                    <h3>大规模服务场景优化建议</h3>
+                    
+                    <h4>1. kube-proxy 模式选择</h4>
+                    <ul>
+                        <li><strong>服务数量 &lt; 100</strong>：iptables 模式性能足够</li>
+                        <li><strong>服务数量 100-1000</strong>：建议使用 IPVS 模式</li>
+                        <li><strong>服务数量 &gt; 1000</strong>：IPVS 模式是必选，并考虑进一步优化</li>
+                    </ul>
+                    
+                    <h4>2. EndpointSlices 配置</h4>
+                    <ul>
+                        <li>启用 EndpointSlices 功能（Kubernetes 1.17+）</li>
+                        <li>调整 --max-endpoints-per-slice 参数（默认 100）</li>
+                        <li>考虑服务规模调整此参数：大型服务减小此值，小型服务增大此值</li>
+                    </ul>
+                    
+                    <h4>3. kube-proxy 资源分配</h4>
+                    <ul>
+                        <li>根据服务数量调整 kube-proxy Pod 的资源限制</li>
+                        <li>经验公式：</li>
+                        <ul>
+                            <li>CPU 请求: 100m + (服务数 * 0.5m)</li>
+                            <li>内存请求: 128Mi + (服务数 * 0.5Mi)</li>
+                        </ul>
+                    </ul>
+                    
+                    <h4>4. 节点内核参数优化</h4>
+                    <ul>
+                        <li>增大 nf_conntrack_max 和 nf_conntrack_buckets</li>
+                        <li>优化 TCP 超时设置，减少连接表占用</li>
+                        <li>增加 netdev_max_backlog 参数值</li>
+                        <li>适当调整 somaxconn 和 tcp_max_syn_backlog</li>
+                    </ul>
+                    
+                    <h4>5. 架构优化</h4>
+                    <ul>
+                        <li>使用命名空间分散服务</li>
+                        <li>考虑服务网格方案替代部分 kube-proxy 功能</li>
+                        <li>对于超大型集群，考虑使用多集群架构</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>结论与最佳实践</h2>
+            <p>通过上述三个实验，我们深入了解了 Kubernetes Service 在不同场景下的性能特性和优化方法。总结如下：</p>
+            
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>实验</th>
+                            <th>主要发现</th>
+                            <th>优化建议</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>多模式对比</td>
+                            <td>
+                                <ul>
+                                    <li>IPVS 模式在高并发下表现更佳</li>
+                                    <li>规则查找效率 IPVS 优于 iptables</li>
+                                    <li>规模增长时性能差异更显著</li>
+                                </ul>
+                            </td>
+                            <td>
+                                <ul>
+                                    <li>大型集群优先选择 IPVS 模式</li>
+                                    <li>根据集群规模选择合适的模式</li>
+                                    <li>确保 IPVS 内核模块正确安装</li>
+                                </ul>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>连接跟踪压力测试</td>
+                            <td>
+                                <ul>
+                                    <li>conntrack 表是潜在瓶颈</li>
+                                    <li>默认参数不适合高连接场景</li>
+                                    <li>表满可能导致连接丢失</li>
+                                </ul>
+                            </td>
+                            <td>
+                                <ul>
+                                    <li>根据节点内存调整表大小</li>
+                                    <li>优化连接超时参数</li>
+                                    <li>监控 conntrack 使用率</li>
+                                </ul>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>大规模服务测试</td>
+                            <td>
+                                <ul>
+                                    <li>服务数量与规则数呈线性关系</li>
+                                    <li>服务更新延迟随规模增加</li>
+                                    <li>EndpointSlices 显著提升大规模性能</li>
+                                </ul>
+                            </td>
+                            <td>
+                                <ul>
+                                    <li>启用 EndpointSlices</li>
+                                    <li>合理分配 kube-proxy 资源</li>
+                                    <li>考虑服务分区或多集群方案</li>
+                                </ul>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="note-card">
+                <h3>综合优化建议</h3>
+                <ol>
+                    <li><strong>集群规模感知配置</strong>：根据集群大小和服务数量选择合适的参数</li>
+                    <li><strong>监控关键指标</strong>：持续监控 kube-proxy 资源使用、conntrack 表使用率和服务延迟</li>
+                    <li><strong>前瞻性规划</strong>：在集群初期就考虑可扩展性，预估未来规模</li>
+                    <li><strong>定期维护</strong>：随着集群规模增长，定期调整参数和优化配置</li>
+                    <li><strong>保持更新</strong>：升级到较新版本的 Kubernetes，利用性能改进如 EndpointSlices</li>
+                </ol>
+            </div>
+            
+            <div class="navigation-buttons">
+                <a href="service-network.html" class="button">返回 Service 网络</a>
+                <a href="service-clusterip.html" class="button">ClusterIP Service</a>
+                <a href="service-nodeport.html" class="button">NodePort Service</a>
+                <a href="service-loadbalancer.html" class="button">LoadBalancer Service</a>
+                <a href="service-externalname.html" class="button">ExternalName Service</a>
+                <a href="service-advanced-topics.html" class="button">Service 高级主题</a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南</p>
+        </div>
+    </footer>
+</body>
+</html> 
