@@ -931,6 +931,630 @@ ipvsadm -ln | grep -A 3 $SERVICE_IP
                     <li><strong>kube-proxy 缓慢同步</strong>：大规模集群中 kube-proxy 更新网络规则可能很慢</li>
                 </ul>
             </div>
+            
+            <h3>3. Service 网络深度故障排查</h3>
+            <p>Service 网络问题往往表现为复杂且难以诊断的现象，以下是针对 Service 网络的深度故障排查方法和实战案例分析。</p>
+            
+            <h4>iptables 规则深度分析</h4>
+            <p>当 Service 网络出现异常时，深入分析 iptables 规则是关键步骤：</p>
+            
+            <div class="code-block command">
+# 查看与特定 Service 相关的 iptables 规则
+SERVICE_PORT="30080"  # NodePort 或其他端口
+iptables-save | grep $SERVICE_PORT
+
+# 查看 KUBE-SERVICES 链中的规则
+iptables -t nat -L KUBE-SERVICES -n --line-numbers
+
+# 查看 KUBE-NODEPORTS 链中的规则
+iptables -t nat -L KUBE-NODEPORTS -n --line-numbers
+
+# 查看 KUBE-EXTERNAL-SERVICES 链中的规则（常见问题源）
+iptables -t filter -L KUBE-EXTERNAL-SERVICES -n --line-numbers
+
+# 跟踪 iptables 规则链路
+iptables -t nat -L KUBE-SVC-XXXXXXX -n  # 查看特定服务的 KUBE-SVC-XXX 链
+iptables -t nat -L KUBE-SEP-XXXXXXX -n  # 查看特定端点的 KUBE-SEP-XXX 链
+            </div>
+            
+            <div class="note-card">
+                <p><strong>iptables 规则链关系：</strong> Service 网络中的 iptables 规则形成了复杂的链路：</p>
+                <ol>
+                    <li><code>PREROUTING/OUTPUT</code> → <code>KUBE-SERVICES</code> → <code>KUBE-SVC-XXX</code> → <code>KUBE-SEP-XXX</code></li>
+                    <li>对于 NodePort：<code>KUBE-SERVICES</code> → <code>KUBE-NODEPORTS</code> → <code>KUBE-SVC-XXX</code></li>
+                    <li>对于外部流量过滤：<code>KUBE-EXTERNAL-SERVICES</code>（filter 表）</li>
+                </ol>
+            </div>
+            
+            <h4>kube-proxy 异常行为分析</h4>
+            <p>kube-proxy 负责维护 Service 网络规则，其异常行为是许多 Service 问题的根源：</p>
+            
+            <div class="code-block command">
+# 检查 kube-proxy 日志
+kubectl logs -n kube-system -l k8s-app=kube-proxy --tail=200
+
+# 检查 kube-proxy 配置
+kubectl get cm -n kube-system kube-proxy -o yaml
+
+# 检查 kube-proxy 健康状态
+kubectl get pods -n kube-system -l k8s-app=kube-proxy -o wide
+
+# 重启特定节点的 kube-proxy（尝试修复）
+NODE_NAME="node-b"
+kubectl delete pod -n kube-system $(kubectl get pods -n kube-system -l k8s-app=kube-proxy -o wide | grep $NODE_NAME | awk '{print $1}')
+            </div>
+            
+            <p><strong>kube-proxy 异常的常见原因：</strong></p>
+            <ul>
+                <li>配置不一致（如不同节点的 kube-proxy 配置不同）</li>
+                <li>资源限制导致处理延迟或失败</li>
+                <li>与其他网络组件（如 CNI 插件）的冲突</li>
+                <li>节点网络隔离或防火墙规则干扰</li>
+                <li>Endpoints 对象更新不及时或不完整</li>
+            </ul>
+            
+            <h4>实战案例：NodePort 跨节点访问失败</h4>
+            <p>以下是一个真实案例：某集群中应用 A 的 NodePort 服务在节点 A 上可以访问，但在节点 B 上无法访问，而应用 B 在两个节点上都正常。</p>
+            
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>服务</th>
+                            <th>节点 A 访问</th>
+                            <th>节点 B 访问</th>
+                            <th>结论</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>应用 A</td>
+                            <td>✅ 成功</td>
+                            <td>❌ 失败</td>
+                            <td>跨节点流量转发异常</td>
+                        </tr>
+                        <tr>
+                            <td>应用 B</td>
+                            <td>✅ 成功</td>
+                            <td>✅ 成功</td>
+                            <td>服务配置正常</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <p><strong>排查步骤：</strong></p>
+            <ol>
+                <li><strong>检查 Service 配置</strong>
+                    <div class="code-block command">
+kubectl get svc 应用A -n 命名空间 -o yaml | grep externalTrafficPolicy
+# 结果: externalTrafficPolicy: Cluster  # 表明应该允许跨节点访问
+                    </div>
+                </li>
+                <li><strong>检查 Endpoints 是否存在</strong>
+                    <div class="code-block command">
+kubectl get endpoints 应用A -n 命名空间
+# 结果: 确认有正常的 endpoints
+                    </div>
+                </li>
+                <li><strong>检查节点 B 上的 iptables 规则</strong>
+                    <div class="code-block command">
+# 查看特定端口的规则
+iptables -L -n | grep 应用A的NodePort
+# 发现异常规则：
+# REJECT tcp -- 0.0.0.0/0 0.0.0.0/0 /* 命名空间/应用A:http-80 has no endpoints */ ADDRTYPE match dst-type LOCAL tcp dith icmp-port-unreachable
+
+# 定位规则所在的链
+iptables -L -n --line-numbers | grep 应用A的NodePort -C 10
+# 结果显示规则位于 KUBE-EXTERNAL-SERVICES 链的第 1 条
+                    </div>
+                </li>
+                <li><strong>对比正常节点</strong>
+                    <div class="code-block command">
+# 在节点 A 上执行同样的命令
+iptables -L KUBE-EXTERNAL-SERVICES -n --line-numbers
+# 结果：正常节点上没有该拒绝规则
+                    </div>
+                </li>
+                <li><strong>临时修复</strong>
+                    <div class="code-block command">
+# 删除异常规则
+iptables -D KUBE-EXTERNAL-SERVICES 1 -t filter
+# 验证访问是否恢复正常
+                    </div>
+                </li>
+            </ol>
+            
+            <p><strong>根因分析：</strong></p>
+            <p>这种情况通常是由以下原因导致的：</p>
+            <ul>
+                <li><strong>kube-proxy 状态不一致</strong>：节点 B 上的 kube-proxy 可能认为应用 A 没有可用的 endpoints，即使实际上是有的</li>
+                <li><strong>Endpoints 对象更新不完整</strong>：kube-proxy 可能只接收到部分 Endpoints 更新或处理更新时出错</li>
+                <li><strong>网络隔离问题</strong>：节点 B 可能存在网络策略或防火墙规则阻止了与应用 A Pod 的通信</li>
+                <li><strong>kube-proxy 同步失败</strong>：节点 B 上的 kube-proxy 同步 Service 和 Endpoints 信息时可能失败</li>
+            </ul>
+            
+            <p><strong>永久解决方案：</strong></p>
+            <ol>
+                <li>重启问题节点上的 kube-proxy</li>
+                <li>检查 kube-proxy 与 API Server 的连接状态</li>
+                <li>确保集群网络组件（如 Calico、Flannel 等）工作正常</li>
+                <li>检查 kube-proxy 的资源限制是否合理</li>
+                <li>考虑升级 Kubernetes 版本，修复已知的 kube-proxy 相关 bug</li>
+            </ol>
+            
+            <h4>Service 网络故障的高级诊断工具</h4>
+            <p>以下工具可以帮助深入诊断 Service 网络问题：</p>
+            
+            <div class="code-block command">
+# 1. 使用 conntrack 跟踪连接状态
+conntrack -L | grep <service_ip>
+
+# 2. 使用 iptables-trace 跟踪数据包路径
+iptables -t raw -A PREROUTING -p tcp --dport <nodeport> -j TRACE
+iptables -t raw -A OUTPUT -p tcp --dport <nodeport> -j TRACE
+# 然后查看内核日志
+dmesg | grep TRACE
+
+# 3. 使用 tcpdump 捕获特定服务的流量
+tcpdump -i any port <nodeport> -nn
+
+# 4. 使用 nsenter 进入 Pod 网络命名空间进行测试
+POD_ID=$(kubectl get pod <pod-name> -o jsonpath='{.status.containerStatuses[0].containerID}' | sed 's/docker:\/\///')
+nsenter -t $(docker inspect -f '{{.State.Pid}}' $POD_ID) -n ip addr
+
+# 5. 使用 kube-proxy 调试模式
+# 修改 kube-proxy ConfigMap，增加日志级别
+kubectl edit cm -n kube-system kube-proxy
+# 将 v=2 改为 v=6
+            </div>
+            
+            <h4>预防 Service 网络问题的最佳实践</h4>
+            <ul>
+                <li><strong>定期验证服务连通性</strong>：部署服务连通性探测器，定期测试所有节点上的 NodePort 访问</li>
+                <li><strong>监控 kube-proxy 健康状态</strong>：监控 kube-proxy 的 CPU、内存使用和重启次数</li>
+                <li><strong>监控 iptables 规则数量</strong>：大量规则会导致性能下降和同步问题</li>
+                <li><strong>实施金丝雀发布</strong>：先在部分节点上更新 kube-proxy 或网络组件，验证无问题后再全面推广</li>
+                <li><strong>保持 Kubernetes 组件版本一致</strong>：确保所有节点上的 kubelet、kube-proxy 版本一致</li>
+                <li><strong>使用 IPVS 模式</strong>：在大规模集群中，IPVS 模式比 iptables 模式更稳定可靠</li>
+                <li><strong>定期重启 kube-proxy</strong>：在维护窗口定期滚动重启 kube-proxy，避免状态不一致积累</li>
+            </ul>
+            
+            <h4>Service 网络性能测试与基准</h4>
+            <p>在生产环境中，了解 Service 网络的性能特性至关重要。以下是一些实用的性能测试方法和基准数据：</p>
+            
+            <div class="code-block command">
+# 使用 fortio 进行 Service 性能测试
+kubectl run fortio --image=fortio/fortio -- load -qps 0 -c 32 -t 30s http://service-name:port/path
+
+# 使用 hey 进行并发测试
+kubectl run hey --image=rakyll/hey --restart=Never --rm -i -- -z 30s -c 50 http://service-name:port/path
+
+# 测量 Service 网络延迟
+kubectl run netperf --image=networkstatic/netperf -- -H service-name -t TCP_RR -l 60
+            </div>
+            
+            <p><strong>性能基准与优化目标：</strong></p>
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>指标</th>
+                            <th>iptables 模式</th>
+                            <th>IPVS 模式</th>
+                            <th>eBPF 模式</th>
+                            <th>优化目标</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Service 创建时间</td>
+                            <td>~500ms</td>
+                            <td>~200ms</td>
+                            <td>~100ms</td>
+                            <td>&lt;200ms</td>
+                        </tr>
+                        <tr>
+                            <td>首包延迟</td>
+                            <td>~1-3ms</td>
+                            <td>~0.5-1ms</td>
+                            <td>~0.2-0.5ms</td>
+                            <td>&lt;1ms</td>
+                        </tr>
+                        <tr>
+                            <td>连续包延迟</td>
+                            <td>~0.1-0.3ms</td>
+                            <td>~0.05-0.1ms</td>
+                            <td>~0.02-0.05ms</td>
+                            <td>&lt;0.1ms</td>
+                        </tr>
+                        <tr>
+                            <td>最大 QPS (单节点)</td>
+                            <td>~50K</td>
+                            <td>~150K</td>
+                            <td>~300K</td>
+                            <td>根据需求</td>
+                        </tr>
+                        <tr>
+                            <td>规则同步时间 (1000 服务)</td>
+                            <td>~30s</td>
+                            <td>~10s</td>
+                            <td>~5s</td>
+                            <td>&lt;10s</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <p><strong>实战案例：优化大规模集群的 Service 性能</strong></p>
+            <p>以下是一个真实案例，展示如何在拥有 5000+ 服务的大规模集群中优化 Service 网络性能：</p>
+            
+            <ol>
+                <li><strong>问题</strong>：集群中 Service 数量增长到 5000+ 后，新 Pod 启动时连接服务延迟增加到 3-5 秒，影响应用启动时间</li>
+                <li><strong>分析</strong>：
+                    <ul>
+                        <li>iptables 规则数量超过 15 万条</li>
+                        <li>kube-proxy 同步一次规则需要 45 秒</li>
+                        <li>节点 CPU 使用率高，conntrack 表接近满载</li>
+                    </ul>
+                </li>
+                <li><strong>解决方案</strong>：
+                    <div class="code-block">
+# 1. 迁移到 IPVS 模式
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-proxy
+  namespace: kube-system
+data:
+  config.conf: |-
+    apiVersion: kubeproxy.config.k8s.io/v1alpha1
+    kind: KubeProxyConfiguration
+    mode: "ipvs"
+    ipvs:
+      scheduler: "rr"
+      syncPeriod: "30s"
+    
+# 2. 优化内核参数
+cat > /etc/sysctl.d/k8s-service-perf.conf << EOF
+net.netfilter.nf_conntrack_max=2000000
+net.netfilter.nf_conntrack_buckets=500000
+net.ipv4.vs.conn_reuse_mode=0
+net.ipv4.vs.expire_nodest_conn=1
+net.core.somaxconn=32768
+net.ipv4.tcp_max_syn_backlog=16384
+EOF
+
+# 3. 启用 EndpointSlices
+kubectl -n kube-system set env daemonset/kube-proxy ENABLE_ENDPOINTSLICES=true
+
+# 4. 优化 kube-proxy 资源
+kubectl -n kube-system patch daemonset kube-proxy -p '{"spec":{"template":{"spec":{"containers":[{"name":"kube-proxy","resources":{"requests":{"cpu":"200m","memory":"512Mi"},"limits":{"cpu":"1","memory":"1Gi"}}}]}}}}'
+                    </div>
+                </li>
+                <li><strong>结果</strong>：
+                    <ul>
+                        <li>服务连接延迟从 3-5 秒降低到 200-300 毫秒</li>
+                        <li>kube-proxy CPU 使用率降低 60%</li>
+                        <li>规则同步时间从 45 秒减少到 8 秒</li>
+                        <li>系统整体稳定性提高，消除了间歇性连接超时</li>
+                    </ul>
+                </li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Service 与云原生生态系统集成</h2>
+            
+            <h3>1. Service 与服务网格的协同</h3>
+            <p>随着微服务架构的普及，Service 与服务网格（如 Istio、Linkerd）的协同工作变得越来越重要：</p>
+            
+            <div class="tab-container">
+                <div class="tabs">
+                    <div class="tab active">Istio 集成</div>
+                    <div class="tab">Linkerd 集成</div>
+                    <div class="tab">Consul Connect</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active">
+                        <h4>Istio 与 Kubernetes Service 集成</h4>
+                        <p>Istio 利用 Kubernetes Service 作为服务发现机制，同时增强了流量管理能力：</p>
+                        
+                        <div class="code-block">
+# Istio 增强的 Service 配置示例
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  namespace: default
+  annotations:
+    networking.istio.io/exportTo: "."  # 限制服务只在当前命名空间可见
+    service.istio.io/canonical-name: "my-service"  # 规范服务名称
+    service.istio.io/canonical-revision: "v1"  # 服务版本
+spec:
+  selector:
+    app: my-app
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: my-service
+spec:
+  host: my-service
+  trafficPolicy:
+    loadBalancer:
+      simple: LEAST_CONN  # 使用最少连接负载均衡
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+  - name: v2
+    labels:
+      version: v2
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: my-service-routing
+spec:
+  hosts:
+  - my-service
+  http:
+  - match:
+    - headers:
+        end-user:
+          exact: beta-tester
+    route:
+    - destination:
+        host: my-service
+        subset: v2  # 测试用户路由到 v2 版本
+  - route:
+    - destination:
+        host: my-service
+        subset: v1  # 其他用户路由到 v1 版本
+                        </div>
+                        
+                        <p><strong>Istio 与 Service 协同工作的优势：</strong></p>
+                        <ul>
+                            <li>保留 Kubernetes Service 的服务发现机制</li>
+                            <li>增强流量管理：细粒度路由、流量分割、故障注入</li>
+                            <li>增强安全性：mTLS、授权策略</li>
+                            <li>增强可观测性：请求追踪、指标收集</li>
+                            <li>支持更复杂的负载均衡算法</li>
+                        </ul>
+                        
+                        <p><strong>最佳实践：</strong></p>
+                        <ul>
+                            <li>为每个 Service 创建对应的 DestinationRule</li>
+                            <li>使用 VirtualService 而非修改 Service 定义来实现高级路由</li>
+                            <li>利用 Istio Gateway 替代 Ingress 资源</li>
+                            <li>保持 Service 定义简单，将复杂性放在 Istio 资源中</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h4>Linkerd 与 Kubernetes Service 集成</h4>
+                        <p>Linkerd 是一个轻量级服务网格，专注于简单性和易用性：</p>
+                        
+                        <div class="code-block">
+# Linkerd 增强的 Service 配置示例
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  namespace: default
+  annotations:
+    linkerd.io/inject: enabled  # 启用 Linkerd 自动注入
+    config.linkerd.io/skip-outbound-ports: "25,443"  # 跳过特定端口
+spec:
+  selector:
+    app: my-app
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+apiVersion: split.smi-spec.io/v1alpha1
+kind: TrafficSplit
+metadata:
+  name: my-service-split
+spec:
+  service: my-service
+  backends:
+  - service: my-service-v1
+    weight: 90
+  - service: my-service-v2
+    weight: 10
+                        </div>
+                        
+                        <p><strong>Linkerd 与 Service 协同工作的优势：</strong></p>
+                        <ul>
+                            <li>极低的性能开销（比 Istio 更轻量）</li>
+                            <li>简单的流量分割和金丝雀发布</li>
+                            <li>自动重试和超时</li>
+                            <li>透明的 mTLS</li>
+                            <li>与 SMI (Service Mesh Interface) 规范兼容</li>
+                        </ul>
+                        
+                        <p><strong>最佳实践：</strong></p>
+                        <ul>
+                            <li>使用注解控制 Linkerd 代理行为</li>
+                            <li>利用 TrafficSplit 资源实现流量分割</li>
+                            <li>为需要细粒度控制的服务创建多个 Service</li>
+                            <li>使用 Linkerd Viz 监控 Service 性能</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="tab-pane">
+                        <h4>Consul Connect 与 Kubernetes Service 集成</h4>
+                        <p>Consul Connect 提供了跨平台的服务网格解决方案，特别适合混合云环境：</p>
+                        
+                        <div class="code-block">
+# Consul 增强的 Service 配置示例
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  namespace: default
+  annotations:
+    consul.hashicorp.com/connect-inject: "true"  # 启用 Consul Connect 注入
+    consul.hashicorp.com/connect-service: "my-app"  # Consul 服务名称
+spec:
+  selector:
+    app: my-app
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceRouter
+metadata:
+  name: my-service-router
+spec:
+  routes:
+  - match:
+      http:
+        pathPrefix: "/api/v2"
+      destination:
+        service: my-service-v2
+  - match:
+      http:
+        pathPrefix: "/api"
+      destination:
+        service: my-service-v1
+                        </div>
+                        
+                        <p><strong>Consul Connect 与 Service 协同工作的优势：</strong></p>
+                        <ul>
+                            <li>跨平台服务发现和网格（Kubernetes 和非 Kubernetes 环境）</li>
+                            <li>集中式服务配置</li>
+                            <li>多数据中心支持</li>
+                            <li>与 HashiCorp 生态系统集成（Vault、Nomad 等）</li>
+                        </ul>
+                        
+                        <p><strong>最佳实践：</strong></p>
+                        <ul>
+                            <li>使用 Consul CRDs 管理服务网格配置</li>
+                            <li>利用 Consul 的服务发现机制连接 Kubernetes 和非 Kubernetes 服务</li>
+                            <li>使用 Consul Intentions 管理服务间通信策略</li>
+                            <li>在混合云环境中使用 Consul 作为统一控制平面</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <h3>2. Service 与 GitOps 工作流</h3>
+            <p>在现代云原生环境中，Service 配置通常通过 GitOps 工作流进行管理：</p>
+            
+            <div class="code-block">
+# 使用 Kustomize 管理不同环境的 Service 配置
+# base/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: my-app
+  ports:
+  - port: 80
+    targetPort: 8080
+
+# overlays/dev/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+namespace: dev
+patchesStrategicMerge:
+- service-patch.yaml
+
+# overlays/dev/service-patch.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+
+# overlays/prod/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+namespace: prod
+patchesStrategicMerge:
+- service-patch.yaml
+
+# overlays/prod/service-patch.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    external-dns.alpha.kubernetes.io/hostname: my-service.example.com
+spec:
+  type: LoadBalancer
+            </div>
+            
+            <p><strong>Service 与 GitOps 最佳实践：</strong></p>
+            <ul>
+                <li><strong>版本控制</strong>：所有 Service 定义都应存储在 Git 仓库中</li>
+                <li><strong>环境分离</strong>：使用 Kustomize 或 Helm 管理不同环境的 Service 配置</li>
+                <li><strong>自动化部署</strong>：使用 ArgoCD 或 Flux 自动同步 Service 配置</li>
+                <li><strong>变更审查</strong>：通过 PR/MR 流程审查 Service 配置变更</li>
+                <li><strong>验证</strong>：使用 kubeval 或 conftest 验证 Service 配置</li>
+                <li><strong>策略执行</strong>：使用 OPA Gatekeeper 或 Kyverno 强制执行 Service 配置策略</li>
+            </ul>
+            
+            <h3>3. Service 与可观测性平台集成</h3>
+            <p>Service 性能和健康状况的监控是可观测性平台的关键组成部分：</p>
+            
+            <div class="code-block">
+# Prometheus ServiceMonitor 示例
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: my-service-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: my-app
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+  namespaceSelector:
+    matchNames:
+    - default
+
+# Grafana 仪表盘查询示例
+sum(rate(http_requests_total{service="my-service"}[5m])) by (status_code)
+histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="my-service"}[5m])) by (le))
+            </div>
+            
+            <p><strong>Service 监控最佳实践：</strong></p>
+            <ul>
+                <li><strong>黄金指标</strong>：监控每个 Service 的请求率、错误率、延迟和饱和度</li>
+                <li><strong>SLO 定义</strong>：为关键 Service 定义服务水平目标</li>
+                <li><strong>拓扑可视化</strong>：使用 Kiali 或 Grafana 可视化 Service 依赖关系</li>
+                <li><strong>分布式追踪</strong>：使用 Jaeger 或 Zipkin 追踪跨 Service 的请求</li>
+                <li><strong>异常检测</strong>：使用机器学习算法检测 Service 行为异常</li>
+                <li><strong>告警策略</strong>：基于 SLO 设置多级告警策略</li>
+            </ul>
+            
+            <div class="diagram-container">
+                <object type="image/svg+xml" data="svg/service-observability.svg" class="diagram">
+                    Service 可观测性架构
+                </object>
+            </div>
         </section>
 
         <section>
