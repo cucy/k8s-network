@@ -9,7 +9,7 @@
 <body>
     <header>
         <div class="container">
-            <h1>Kubernetes (K8S) 网络原理</h1>
+            <h1>K8S网络原理</h1>
             <nav>
                 <ul>
                     <li><a href="index.html">首页</a></li>
@@ -27,7 +27,7 @@
         </div>
     </header>
 
-    <main>
+    <main class="container">
         <section>
             <h2>Kubernetes网络故障排查概述</h2>
             <p>Kubernetes网络是一个复杂的系统，涉及多个层次和组件。当网络问题发生时，系统性的故障排查方法可以帮助您快速定位和解决问题。本指南将提供全面的Kubernetes网络故障排查策略和工具。</p>
@@ -723,7 +723,9 @@ kubectl delete networkpolicy <policy-name> -n <namespace>
     </main>
 
     <footer>
-        <p>&copy; 2025 Kubernetes网络学习指南 | <a href="index.html">首页</a></p>
+        <div class="container">
+            <p>&copy; 2025 Kubernetes网络学习指南 | <a href="index.html">首页</a> | <a href="toc.html">目录导航</a> | <a href="network-knowledge-map.html">网络知识图谱</a></p>
+        </div>
     </footer>
 
     <script src="js/main.js"></script>

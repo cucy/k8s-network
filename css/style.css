@@ -315,56 +315,70 @@ footer {
 
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 1.5rem;
-    margin: 1.5rem 0;
-}
-
-.feature {
-    background-color: #f8f9fa;
-    border-radius: 8px;
-    padding: 1.2rem;
-    border-left: 4px solid var(--secondary-color);
-}
-
-.feature h4 {
-    color: var(--primary-color);
-    margin-bottom: 0.5rem;
-    font-size: 1.1rem;
-}
-
-.workflow-steps {
-    counter-reset: step-counter;
-    list-style-type: none;
-    padding-left: 0;
     margin: 2rem 0;
 }
 
-.workflow-steps li {
-    position: relative;
-    padding-left: 3rem;
-    margin-bottom: 2rem;
-    counter-increment: step-counter;
+.feature {
+    background-color: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    transition: transform 0.3s ease;
 }
 
-.workflow-steps li::before {
-    content: counter(step-counter);
+.feature:hover {
+    transform: translateY(-5px);
+}
+
+.feature h3 {
+    color: var(--primary-color);
+    margin-bottom: 0.8rem;
+}
+
+.workflow-steps {
+    margin: 2rem 0;
+}
+
+.step {
+    display: flex;
+    margin-bottom: 2rem;
+    position: relative;
+}
+
+.step:not(:last-child)::after {
+    content: '';
     position: absolute;
-    left: 0;
-    top: 0;
-    width: 2.2rem;
-    height: 2.2rem;
+    top: 40px;
+    left: 20px;
+    height: calc(100% - 20px);
+    width: 2px;
+    background-color: var(--border-color);
+}
+
+.step-number {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
     background-color: var(--primary-color);
     color: white;
-    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
+    margin-right: 1.5rem;
     font-weight: bold;
+    font-size: 1.2rem;
+    z-index: 1;
 }
 
-.workflow-steps h3 {
-    margin-top: 0;
+.step-content {
+    flex-grow: 1;
+    background-color: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .info-box {
@@ -489,47 +503,55 @@ footer {
 
 .accordion-item {
     margin-bottom: 1rem;
-    border: 1px solid var(--border-color);
     border-radius: 8px;
     overflow: hidden;
+    background-color: white;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .accordion-header {
-    background-color: #f8f9fa;
-    padding: 1rem;
+    padding: 1rem 1.5rem;
+    background-color: var(--light-gray);
     cursor: pointer;
     font-weight: 500;
     position: relative;
+    transition: background-color 0.3s ease;
 }
 
 .accordion-header::after {
     content: '+';
     position: absolute;
-    right: 1rem;
+    right: 1.5rem;
     top: 50%;
     transform: translateY(-50%);
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+.accordion-header.active {
+    background-color: var(--primary-color);
+    color: white;
 }
 
 .accordion-header.active::after {
-    content: '-';
+    content: '−';
 }
 
 .accordion-content {
-    padding: 0 1rem;
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease;
+    padding: 0 1.5rem;
 }
 
 .accordion-header.active + .accordion-content {
-    padding: 1rem;
-    border-top: 1px solid var(--border-color);
-    max-height: 1000px; /* 设置一个足够大的值，确保内容可以完全展开 */
+    max-height: 1000px;
+    padding: 1.5rem;
 }
 
 .tips-container {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1.5rem;
     margin: 2rem 0;
 }
@@ -539,12 +561,18 @@ footer {
     border-radius: 8px;
     padding: 1.5rem;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-    border-top: 3px solid var(--secondary-color);
+    border-left: 4px solid var(--primary-color);
 }
 
 .tip h3 {
+    color: var(--primary-color);
+    margin-bottom: 1rem;
+}
+
+.tip h4 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
     color: var(--secondary-color);
-    margin-top: 0;
 }
 
 /* 交互式组件样式 */
@@ -567,30 +595,49 @@ footer {
 }
 
 .tabs {
+    margin: 2rem 0;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: white;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.tab-headers {
     display: flex;
+    background-color: var(--light-gray);
     border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
 }
 
-.tab {
-    padding: 0.8rem 1.5rem;
+.tab-header {
+    padding: 1rem 1.5rem;
     cursor: pointer;
-    border-bottom: 2px solid transparent;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s ease;
 }
 
-.tab.active {
-    border-bottom: 2px solid var(--primary-color);
+.tab-header:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.tab-header.active {
     color: var(--primary-color);
+    border-bottom: 3px solid var(--primary-color);
+    background-color: white;
+}
+
+.tab-contents {
+    padding: 1.5rem;
 }
 
 .tab-content {
-    padding: 1.5rem 0;
-}
-
-.tab-pane {
     display: none;
 }
 
-.tab-pane.active {
+.tab-content.active {
     display: block;
 }
 
@@ -663,5 +710,30 @@ footer {
     
     .card-container {
         grid-template-columns: 1fr;
+    }
+    
+    .feature-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .workflow-steps .step {
+        flex-direction: column;
+    }
+    
+    .workflow-steps .step-number {
+        margin-bottom: 1rem;
+    }
+    
+    .workflow-steps .step:not(:last-child)::after {
+        display: none;
+    }
+    
+    .tips-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .tab-headers {
+        flex-wrap: nowrap;
+        overflow-x: auto;
     }
 }

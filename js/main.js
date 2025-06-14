@@ -1,53 +1,9 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // 标签页切换功能
-    const tabContainers = document.querySelectorAll('.tab-container');
+    // 初始化标签页
+    initTabs();
     
-    tabContainers.forEach(container => {
-        const tabs = container.querySelectorAll('.tab');
-        const tabPanes = container.querySelectorAll('.tab-pane');
-        
-        tabs.forEach((tab, index) => {
-            tab.addEventListener('click', () => {
-                // 移除所有活动标签和内容
-                tabs.forEach(t => t.classList.remove('active'));
-                tabPanes.forEach(p => p.classList.remove('active'));
-                
-                // 激活当前标签和内容
-                tab.classList.add('active');
-                tabPanes[index].classList.add('active');
-            });
-        });
-        
-        // 默认激活第一个标签
-        if(tabs.length > 0 && tabPanes.length > 0) {
-            tabs[0].classList.add('active');
-            tabPanes[0].classList.add('active');
-        }
-    });
-    
-    // 手风琴功能
-    const accordionHeaders = document.querySelectorAll('.accordion-header');
-    
-    accordionHeaders.forEach(header => {
-        header.addEventListener('click', () => {
-            const content = header.nextElementSibling;
-            const isOpen = header.classList.contains('active');
-            
-            // 切换当前项
-            if (!isOpen) {
-                header.classList.add('active');
-                content.style.maxHeight = content.scrollHeight + 'px';
-            } else {
-                header.classList.remove('active');
-                content.style.maxHeight = null;
-            }
-        });
-    });
-    
-    // 初始化手风琴状态 - 确保所有内容初始为关闭状态
-    document.querySelectorAll('.accordion-content').forEach(content => {
-        content.style.maxHeight = null;
-    });
+    // 初始化手风琴组件
+    initAccordion();
     
     // 交互式网络图表动画
     const networkDiagrams = document.querySelectorAll('.interactive-diagram');
@@ -140,3 +96,53 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// 初始化标签页功能
+function initTabs() {
+    const tabHeaders = document.querySelectorAll('.tab-header');
+    if (tabHeaders.length === 0) return;
+    
+    // 设置第一个标签为活动状态
+    const firstTabHeader = tabHeaders[0];
+    const tabContents = document.querySelectorAll('.tab-content');
+    const firstTabContent = tabContents[0];
+    
+    if (!firstTabHeader.classList.contains('active')) {
+        firstTabHeader.classList.add('active');
+    }
+    
+    if (!firstTabContent.classList.contains('active')) {
+        firstTabContent.classList.add('active');
+    }
+    
+    // 为每个标签头添加点击事件
+    tabHeaders.forEach((header, index) => {
+        header.addEventListener('click', function() {
+            // 移除所有活动标签
+            tabHeaders.forEach(h => h.classList.remove('active'));
+            tabContents.forEach(c => c.classList.remove('active'));
+            
+            // 激活当前标签
+            this.classList.add('active');
+            tabContents[index].classList.add('active');
+        });
+    });
+}
+
+// 初始化手风琴组件功能
+function initAccordion() {
+    const accordionHeaders = document.querySelectorAll('.accordion-header');
+    if (accordionHeaders.length === 0) return;
+    
+    // 默认打开第一个手风琴项
+    if (!accordionHeaders[0].classList.contains('active')) {
+        accordionHeaders[0].classList.add('active');
+    }
+    
+    // 为每个手风琴头部添加点击事件
+    accordionHeaders.forEach(header => {
+        header.addEventListener('click', function() {
+            this.classList.toggle('active');
+        });
+    });
+}
