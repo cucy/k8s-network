@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes 网络知识图谱 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f9f9f9; }
+        .container { max-width: 1200px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 10px; box-shadow: 0 2px 8px #0001; }
+        h1 { text-align: center; margin-bottom: 32px; color: #1976d2; }
+        h2 { margin-top: 30px; color: #2196f3; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; }
+        .description { line-height: 1.6; margin-bottom: 30px; }
+        .mermaid-container { margin: 30px 0; overflow: auto; }
+        .nav-buttons { display: flex; justify-content: space-between; margin-top: 40px; }
+        .nav-button { display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; transition: all 0.3s; }
+        .nav-button:hover { background: #1565c0; }
+        .legend { background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 30px 0 20px; }
+        .legend h3 { margin-top: 0; }
+        .legend ul { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Kubernetes 网络知识图谱</h1>
+        
+        <div class="description">
+            <p>本页面通过可视化图表展示了 Kubernetes 网络的各个组件和概念之间的关系。这些图表可以帮助您更好地理解 Kubernetes 网络的整体架构和各部分如何协同工作。</p>
+        </div>
+        
+        <h2>Kubernetes 网络概念总览</h2>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+flowchart TB
+    subgraph "主机网络"
+        NetNS["网络命名空间"]
+        Bridge["网络桥接"]
+        Veth["虚拟以太网对"]
+    end
+    
+    subgraph "Pod 网络"
+        PodNet["Pod 网络概念"]
+        PodInternal["Pod 内部网络"]
+        PodIP["Pod IP分配"]
+        PodComm["Pod间通信"]
+        CrossNode["跨节点网络"]
+    end
+    
+    subgraph "Service 网络"
+        SvcNet["Service 网络概念"]
+        ClusterIP["ClusterIP"]
+        NodePort["NodePort"]
+        LoadBalancer["LoadBalancer"]
+        ExternalName["ExternalName"]
+        AdvSvc["高级服务特性"]
+    end
+    
+    subgraph "CNI 和 Overlay"
+        CNI["CNI 插件"]
+        Overlay["Overlay 网络"]
+        Flannel["Flannel"]
+        Calico["Calico"]
+        CalicoVXLAN["Calico VXLAN"]
+        CalicoIPIP["Calico IPIP"]
+        CalicoWG["Calico WireGuard"]
+        CNIOver["CNI与Overlay集成"]
+    end
+    
+    subgraph "高级技术"
+        eBPF["eBPF 网络"]
+        WG["WireGuard"]
+        Geneve["Geneve"]
+    end
+    
+    subgraph "对外服务"
+        Ingress["Ingress"]
+    end
+    
+    NetNS --> Veth
+    Bridge --> Veth
+    Veth --> PodNet
+    NetNS --> PodNet
+    
+    PodNet --> PodInternal
+    PodNet --> PodIP
+    PodNet --> PodComm
+    PodComm --> CrossNode
+    
+    PodNet --> SvcNet
+    SvcNet --> ClusterIP
+    SvcNet --> NodePort
+    SvcNet --> LoadBalancer
+    SvcNet --> ExternalName
+    SvcNet --> AdvSvc
+    
+    ClusterIP -.-> Ingress
+    NodePort -.-> Ingress
+    LoadBalancer -.-> Ingress
+    
+    PodNet --> CNI
+    CNI --> Overlay
+    Overlay --> Flannel
+    Overlay --> Calico
+    Calico --> CalicoVXLAN
+    Calico --> CalicoIPIP
+    Calico --> CalicoWG
+    CNI --> CNIOver
+    
+    Overlay --> WG
+    Overlay --> Geneve
+    CNI --> eBPF
+            </pre>
+        </div>
+        
+        <div class="legend">
+            <h3>图例说明</h3>
+            <ul>
+                <li>实线箭头：表示直接依赖或包含关系</li>
+                <li>虚线箭头：表示可选的关联关系</li>
+                <li>分组框：表示同一类别或领域的概念</li>
+            </ul>
+        </div>
+        
+        <h2>Pod 网络详细架构</h2>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+flowchart TB
+    subgraph "节点1"
+        N1["Node 网络"]
+        subgraph "Pod A"
+            PA_NS["网络命名空间A"]
+            PA_C1["容器1"]
+            PA_C2["容器2"]
+            PA_C1 --- PA_C2
+        end
+        subgraph "Pod B"
+            PB_NS["网络命名空间B"]
+            PB_C1["容器1"]
+        end
+        N1 --> PA_NS
+        N1 --> PB_NS
+        PA_NS --- PB_NS
+    end
+    
+    subgraph "节点2"
+        N2["Node 网络"]
+        subgraph "Pod C"
+            PC_NS["网络命名空间C"]
+            PC_C1["容器1"]
+        end
+        N2 --> PC_NS
+    end
+    
+    N1 <--> N2
+    PA_NS <--> PC_NS
+            </pre>
+        </div>
+        
+        <h2>Service 网络流量图</h2>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+flowchart LR
+    Client["客户端"]
+    
+    subgraph "Service 类型"
+        CIP["ClusterIP Service"]
+        NP["NodePort Service"]
+        LB["LoadBalancer Service"]
+        Ing["Ingress"]
+    end
+    
+    subgraph "内部组件"
+        DNS["CoreDNS"]
+        KP["kube-proxy"]
+        IPVS["IPVS"]
+        IPT["iptables"]
+    end
+    
+    subgraph "后端Pod"
+        P1["Pod 1"]
+        P2["Pod 2"]
+        P3["Pod 3"]
+    end
+    
+    Client --> Ing
+    Client --> LB
+    Client --> NP
+    
+    Ing --> CIP
+    LB --> NP
+    NP --> CIP
+    
+    CIP --> KP
+    KP --> IPVS
+    KP --> IPT
+    
+    Client -.-> DNS
+    DNS --> CIP
+    
+    IPVS --> P1
+    IPVS --> P2
+    IPVS --> P3
+    IPT --> P1
+    IPT --> P2
+    IPT --> P3
+            </pre>
+        </div>
+        
+        <h2>CNI 和 Overlay 网络架构</h2>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+flowchart TB
+    subgraph "CNI 插件"
+        direction TB
+        CNI_API["CNI API"]
+        
+        subgraph "网络模式"
+            Flat["平面网络"]
+            OL["Overlay 网络"]
+        end
+        
+        subgraph "插件实现"
+            FL["Flannel"]
+            CAL["Calico"]
+            WV["Weave"]
+            CIL["Cilium"]
+        end
+        
+        CNI_API --> Flat
+        CNI_API --> OL
+        
+        Flat --> CAL
+        OL --> FL
+        OL --> CAL
+        OL --> WV
+        Flat --> CIL
+        OL --> CIL
+    end
+    
+    subgraph "网络技术"
+        VXLAN["VXLAN"]
+        IPIP["IP-in-IP"]
+        BGP["BGP"]
+        WG["WireGuard"]
+        EBPF["eBPF"]
+        GNV["Geneve"]
+    end
+    
+    FL --> VXLAN
+    CAL --> IPIP
+    CAL --> VXLAN
+    CAL --> BGP
+    CAL --> WG
+    CIL --> EBPF
+    CIL --> VXLAN
+    CIL --> GNV
+            </pre>
+        </div>
+        
+        <h2>学习路径图</h2>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+flowchart LR
+    Start["开始"]
+    
+    subgraph "基础知识"
+        NS["网络命名空间"]
+        BR["网络桥接"]
+        VE["虚拟以太网"]
+    end
+    
+    subgraph "Pod 网络"
+        PB["Pod 网络基础"]
+        PI["Pod 内部网络"]
+        PIP["Pod IP 分配"]
+        P2P["Pod 间通信"]
+    end
+    
+    subgraph "Service 网络"
+        SB["Service 基础"]
+        ST["Service 类型"]
+        SA["Service 高级特性"]
+    end
+    
+    subgraph "CNI 和 Overlay"
+        CNIB["CNI 基础"]
+        OVB["Overlay 基础"]
+        CALT["Calico"]
+        FLNT["Flannel"]
+    end
+    
+    subgraph "高级主题"
+        ADV["高级排错"]
+        PERF["性能优化"]
+        SEC["网络安全"]
+    end
+    
+    Start --> NS
+    NS --> BR
+    BR --> VE
+    
+    VE --> PB
+    PB --> PI
+    PI --> PIP
+    PIP --> P2P
+    
+    P2P --> SB
+    SB --> ST
+    ST --> SA
+    
+    P2P --> CNIB
+    CNIB --> OVB
+    OVB --> CALT
+    OVB --> FLNT
+    
+    SA --> ADV
+    CALT --> ADV
+    FLNT --> ADV
+    ADV --> PERF
+    PERF --> SEC
+            </pre>
+        </div>
+        
+        <div class="nav-buttons">
+            <a href="index.html" class="nav-button">返回首页</a>
+            <a href="toc.html" class="nav-button">目录导航</a>
+        </div>
+    </div>
+    
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'neutral',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+        
+        // 记录阅读进度
+        document.addEventListener('DOMContentLoaded', function() {
+            localStorage.setItem('read_' + window.location.href, 'true');
+        });
+    </script>
+</body>
+</html> 

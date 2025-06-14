@@ -7,79 +7,232 @@
     <link rel="stylesheet" href="css/style.css">
     <style>
         body { font-family: Arial, sans-serif; background: #f9f9f9; }
-        .container { max-width: 700px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 10px; box-shadow: 0 2px 8px #0001; }
+        .container { max-width: 900px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 10px; box-shadow: 0 2px 8px #0001; }
         h1 { text-align: center; margin-bottom: 32px; color: #1976d2; }
-        ul.toc-list { list-style: none; padding: 0; }
+        h2 { margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; color: #2196f3; }
+        h3 { margin-top: 20px; color: #0d47a1; }
+        .topic-section { margin-bottom: 30px; }
+        ul.toc-list, ul.subtopic-list { list-style: none; padding: 0; }
         ul.toc-list li { margin: 12px 0; }
-        ul.toc-list li a { font-size: 1.08em; color: #1976d2; text-decoration: none; padding: 6px 0; display: inline-block; transition: color 0.2s; }
-        ul.toc-list li a:hover { color: #388e3c; text-decoration: underline; }
+        ul.subtopic-list li { margin: 8px 0 8px 20px; }
+        ul.toc-list li a, ul.subtopic-list li a { color: #1976d2; text-decoration: none; padding: 6px 0; display: inline-block; transition: color 0.2s; }
+        ul.toc-list li a:hover, ul.subtopic-list li a:hover { color: #388e3c; text-decoration: underline; }
+        .progress-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; }
+        .basic { background-color: #4caf50; }
+        .intermediate { background-color: #ff9800; }
+        .advanced { background-color: #f44336; }
+        .legend { margin: 20px 0; padding: 15px; background-color: #f5f5f5; border-radius: 5px; }
+        .legend div { margin: 5px 0; }
+        .search-container { margin-bottom: 20px; }
+        .search-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; }
+        .learning-path { background-color: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 30px; }
+        .learning-path h3 { margin-top: 0; }
+        .learning-path ol { padding-left: 20px; }
+        .learning-path li { margin-bottom: 8px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>目录导航</h1>
-        <ul class="toc-list">
-            <li><a href="index.html">首页</a></li>
-            <li><a href="calico-bgp.html">Calico BGP模式</a></li>
-            <li><a href="calico-ipinip.html">Calico IPinIP模式</a></li>
-            <li><a href="calico-vxlan.html">Calico VXLAN模式</a></li>
-            <li><a href="calico-wireguard.html">Calico WireGuard模式</a></li>
-            <li><a href="cni-overlay-integration.html">CNI与Overlay集成</a></li>
-            <li><a href="cni.html">CNI 插件</a></li>
-            <li><a href="cross-node-networking.html">跨节点网络</a></li>
-            <li><a href="ebpf-networking.html">eBPF 网络</a></li>
-            <li><a href="experiments.html">动手实验</a></li>
-            <li><a href="flannel-vxlan.html">Flannel VXLAN</a></li>
-            <li><a href="geneve-technology.html">Geneve 技术</a></li>
-            <li><a href="ingress.html">Ingress</a></li>
-            <li><a href="network-bridges.html">网络桥接</a></li>
-            <li><a href="network-namespaces.html">网络命名空间</a></li>
-            <li><a href="network-troubleshooting.html">网络故障排查</a></li>
-            <li><a href="overlay-networks.html">Overlay 网络</a></li>
-            <li><a href="pod-internal-networking.html">Pod 内部网络</a></li>
-            <li><a href="pod-ip-allocation.html">Pod IP分配</a></li>
-            <li><a href="pod-network.html">Pod 网络</a></li>
-            <li><a href="pod-to-pod-networking.html">Pod间网络通信</a></li>
-            <li><a href="service-network.html">Service 网络</a></li>
-            <li><a href="veth-advanced-topologies.html">veth高级拓扑</a></li>
-            <li><a href="veth-bridge-topology.html">veth桥接拓扑</a></li>
-            <li><a href="veth-creation.html">veth创建</a></li>
-            <li><a href="veth-hybrid-topology.html">veth混合拓扑</a></li>
-            <li><a href="veth-namespaces-basics.html">veth命名空间基础</a></li>
-            <li><a href="veth-pairs.html">veth对</a></li>
-            <li><a href="veth-ring-topology.html">veth环形拓扑</a></li>
-            <li><a href="veth-routing-advanced.html">veth高级路由</a></li>
-            <li><a href="veth-routing-dynamic-bgp.html">veth动态BGP路由</a></li>
-            <li><a href="veth-routing-dynamic-ospf-advanced.html">veth动态OSPF高级</a></li>
-            <li><a href="veth-routing-dynamic-ospf-basic.html">veth动态OSPF基础</a></li>
-            <li><a href="veth-routing-dynamic-ospf.html">veth动态OSPF</a></li>
-            <li><a href="veth-routing-dynamic-rip.html">veth动态RIP路由</a></li>
-            <li><a href="veth-routing-dynamic.html">veth动态路由</a></li>
-            <li><a href="veth-routing-policy.html">veth路由策略</a></li>
-            <li><a href="veth-routing-static-advanced.html">veth静态路由高级</a></li>
-            <li><a href="veth-routing-static-basic.html">veth静态路由基础</a></li>
-            <li><a href="veth-routing-static-multipath.html">veth静态多路径</a></li>
-            <li><a href="veth-routing-static.html">veth静态路由</a></li>
-            <li><a href="veth-security.html">veth安全</a></li>
-            <li><a href="veth-star-topology-advanced.html">veth星型拓扑高级</a></li>
-            <li><a href="veth-star-topology.html">veth星型拓扑</a></li>
-            <li><a href="veth-triangle-topology.html">veth三角拓扑</a></li>
-            <li><a href="wireguard-overlay.html">WireGuard 技术</a></li>
-        </ul>
-
-        <!-- Service 网络 -->
+        <h1>Kubernetes 网络学习指南</h1>
+        
+        <div class="search-container">
+            <input type="text" class="search-input" id="searchInput" placeholder="搜索内容..." onkeyup="searchContent()">
+        </div>
+        
+        <div style="text-align: center; margin-bottom: 20px;">
+            <a href="network-knowledge-map.html" style="display: inline-block; background: #e3f2fd; color: #1976d2; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; margin-right: 10px;">
+                查看网络知识图谱 📊
+            </a>
+            <a href="knowledge-quiz.html" style="display: inline-block; background: #e8f5e9; color: #388e3c; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold;">
+                知识自测 ✓
+            </a>
+        </div>
+        
+        <div class="learning-path">
+            <h3>推荐学习路径</h3>
+            <ol>
+                <li>网络基础知识（网络命名空间、网络桥接）</li>
+                <li>虚拟以太网（veth）基础</li>
+                <li>Pod 网络原理</li>
+                <li>Service 网络原理</li>
+                <li>CNI 插件和 Overlay 网络</li>
+                <li>Ingress 和对外服务</li>
+                <li>网络故障排查</li>
+                <li>高级网络技术（eBPF、WireGuard等）</li>
+            </ol>
+        </div>
+        
+        <div class="legend">
+            <h3>难度指示</h3>
+            <div><span class="progress-indicator basic"></span> 基础</div>
+            <div><span class="progress-indicator intermediate"></span> 中级</div>
+            <div><span class="progress-indicator advanced"></span> 高级</div>
+        </div>
+        
+        <!-- 网络基础 -->
+        <h2 id="network-basics">网络基础</h2>
         <div class="topic-section">
-            <h3>Service 网络</h3>
-            <ul>
-                <li><a href="service-network.html">Service 网络概述</a></li>
-                <li><a href="service-clusterip.html">ClusterIP Service</a></li>
-                <li><a href="service-nodeport.html">NodePort Service</a></li>
-                <li><a href="service-loadbalancer.html">LoadBalancer Service</a></li>
-                <li><a href="service-externalname.html">ExternalName Service</a></li>
-                <li><a href="service-advanced-topics.html">Service 高级主题</a></li>
-                <li><a href="service-performance-tests.html">Service 性能测试</a></li>
+            <ul class="toc-list">
+                <li><span class="progress-indicator basic"></span><a href="network-namespaces.html">网络命名空间</a></li>
+                <li><span class="progress-indicator basic"></span><a href="network-bridges.html">网络桥接</a></li>
+            </ul>
+        </div>
+        
+        <!-- 虚拟以太网 (veth) -->
+        <h2 id="veth">虚拟以太网 (veth)</h2>
+        <div class="topic-section">
+            <h3>基础概念</h3>
+            <ul class="subtopic-list">
+                <li><span class="progress-indicator basic"></span><a href="veth-creation.html">veth创建</a></li>
+                <li><span class="progress-indicator basic"></span><a href="veth-pairs.html">veth对</a></li>
+                <li><span class="progress-indicator basic"></span><a href="veth-namespaces-basics.html">veth命名空间基础</a></li>
+            </ul>
+
+            <h3>拓扑结构</h3>
+            <ul class="subtopic-list">
+                <li><span class="progress-indicator basic"></span><a href="veth-star-topology.html">veth星型拓扑</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="veth-star-topology-advanced.html">veth星型拓扑高级</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="veth-triangle-topology.html">veth三角拓扑</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="veth-ring-topology.html">veth环形拓扑</a></li>
+                <li><span class="progress-indicator basic"></span><a href="veth-bridge-topology.html">veth桥接拓扑</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="veth-hybrid-topology.html">veth混合拓扑</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-advanced-topologies.html">veth高级拓扑</a></li>
+            </ul>
+            
+            <h3>路由</h3>
+            <ul class="subtopic-list">
+                <li><span class="progress-indicator basic"></span><a href="veth-routing-static-basic.html">veth静态路由基础</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="veth-routing-static.html">veth静态路由</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="veth-routing-static-advanced.html">veth静态路由高级</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-static-multipath.html">veth静态多路径</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="veth-routing-dynamic.html">veth动态路由</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-dynamic-rip.html">veth动态RIP路由</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-dynamic-ospf.html">veth动态OSPF</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-dynamic-ospf-basic.html">veth动态OSPF基础</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-dynamic-ospf-advanced.html">veth动态OSPF高级</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-dynamic-bgp.html">veth动态BGP路由</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-policy.html">veth路由策略</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="veth-routing-advanced.html">veth高级路由</a></li>
+            </ul>
+            
+            <h3>安全</h3>
+            <ul class="subtopic-list">
+                <li><span class="progress-indicator intermediate"></span><a href="veth-security.html">veth安全</a></li>
+            </ul>
+        </div>
+        
+        <!-- Pod 网络 -->
+        <h2 id="pod-network">Pod 网络</h2>
+        <div class="topic-section">
+            <ul class="toc-list">
+                <li><span class="progress-indicator basic"></span><a href="pod-network.html">Pod 网络概述</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="pod-internal-networking.html">Pod 内部网络</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="pod-ip-allocation.html">Pod IP分配</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="pod-to-pod-networking.html">Pod间网络通信</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="cross-node-networking.html">跨节点网络</a></li>
+            </ul>
+        </div>
+        
+        <!-- Service 网络 -->
+        <h2 id="service-network">Service 网络</h2>
+        <div class="topic-section">
+            <ul class="toc-list">
+                <li><span class="progress-indicator basic"></span><a href="service-network.html">Service 网络概述</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="service-clusterip.html">ClusterIP Service</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="service-nodeport.html">NodePort Service</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="service-loadbalancer.html">LoadBalancer Service</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="service-externalname.html">ExternalName Service</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="service-advanced-topics.html">Service 高级主题</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="service-performance-tests.html">Service 性能测试</a></li>
+            </ul>
+        </div>
+        
+        <!-- CNI 和 Overlay 网络 -->
+        <h2 id="cni-overlay">CNI 和 Overlay 网络</h2>
+        <div class="topic-section">
+            <ul class="toc-list">
+                <li><span class="progress-indicator basic"></span><a href="cni.html">CNI 插件</a></li>
+                <li><span class="progress-indicator basic"></span><a href="overlay-networks.html">Overlay 网络概述</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="cni-overlay-integration.html">CNI与Overlay集成</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="flannel-vxlan.html">Flannel VXLAN</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="calico-bgp.html">Calico BGP模式</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="calico-ipinip.html">Calico IPinIP模式</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="calico-vxlan.html">Calico VXLAN模式</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="calico-wireguard.html">Calico WireGuard模式</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="geneve-technology.html">Geneve 技术</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="wireguard-overlay.html">WireGuard 技术</a></li>
+            </ul>
+        </div>
+        
+        <!-- 对外服务 -->
+        <h2 id="external-services">对外服务</h2>
+        <div class="topic-section">
+            <ul class="toc-list">
+                <li><span class="progress-indicator intermediate"></span><a href="ingress.html">Ingress</a></li>
+            </ul>
+        </div>
+        
+        <!-- 高级网络技术 -->
+        <h2 id="advanced-tech">高级网络技术</h2>
+        <div class="topic-section">
+            <ul class="toc-list">
+                <li><span class="progress-indicator advanced"></span><a href="ebpf-networking.html">eBPF 网络</a></li>
+            </ul>
+        </div>
+        
+        <!-- 故障排查 -->
+        <h2 id="troubleshooting">故障排查</h2>
+        <div class="topic-section">
+            <ul class="toc-list">
+                <li><span class="progress-indicator intermediate"></span><a href="network-troubleshooting.html">网络故障排查</a></li>
+                <li><span class="progress-indicator advanced"></span><a href="advanced-troubleshooting.html">高级故障排查</a></li>
+            </ul>
+        </div>
+        
+        <!-- 实验 -->
+        <h2 id="experiments">实验与工具</h2>
+        <div class="topic-section">
+            <ul class="toc-list">
+                <li><span class="progress-indicator basic"></span><a href="experiments.html">动手实验</a></li>
+                <li><span class="progress-indicator intermediate"></span><a href="service-troubleshooting-tool.html">服务流量排查工具</a></li>
+                <li><span class="progress-indicator basic"></span><a href="knowledge-quiz.html">知识自测</a></li>
             </ul>
         </div>
     </div>
+    
+    <script>
+    function searchContent() {
+        var input, filter, tocItems, i, txtValue;
+        input = document.getElementById("searchInput");
+        filter = input.value.toUpperCase();
+        tocItems = document.getElementsByTagName("a");
+        
+        for (i = 0; i < tocItems.length; i++) {
+            txtValue = tocItems[i].textContent || tocItems[i].innerText;
+            if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                tocItems[i].style.display = "";
+                tocItems[i].parentElement.style.display = "";
+            } else {
+                tocItems[i].style.display = "none";
+                tocItems[i].parentElement.style.display = "none";
+            }
+        }
+    }
+    
+    // 记录阅读进度
+    document.addEventListener('DOMContentLoaded', function() {
+        const links = document.querySelectorAll('a');
+        links.forEach(link => {
+            // 检查是否已阅读过此页面
+            if (localStorage.getItem('read_' + link.href)) {
+                link.style.color = '#388e3c';
+            }
+            
+            link.addEventListener('click', function() {
+                localStorage.setItem('read_' + this.href, 'true');
+            });
+        });
+    });
+    </script>
 </body>
 </html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes 网络知识自测 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f9f9f9; }
+        .container { max-width: 900px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 10px; box-shadow: 0 2px 8px #0001; }
+        h1 { text-align: center; margin-bottom: 32px; color: #1976d2; }
+        h2 { margin-top: 30px; color: #2196f3; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; }
+        .quiz-description { line-height: 1.6; margin-bottom: 30px; }
+        .quiz-container { margin-top: 20px; }
+        .quiz-card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 20px; margin-bottom: 25px; }
+        .quiz-card h3 { margin-top: 0; color: #0d47a1; }
+        .quiz-options { margin-top: 15px; }
+        .quiz-options label { display: block; padding: 10px; margin: 5px 0; background: #fff; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
+        .quiz-options label:hover { background: #e3f2fd; }
+        .quiz-options input[type="radio"] { margin-right: 10px; }
+        .submit-button { background: #1976d2; color: white; border: none; padding: 12px 20px; border-radius: 5px; font-size: 16px; cursor: pointer; transition: all 0.3s; display: block; margin: 30px auto; }
+        .submit-button:hover { background: #1565c0; }
+        .results-container { margin-top: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 8px; display: none; }
+        .results-container h3 { margin-top: 0; }
+        .result-correct { color: #388e3c; font-weight: bold; }
+        .result-incorrect { color: #d32f2f; font-weight: bold; }
+        .explanation { background: #e8f5e9; padding: 15px; border-radius: 5px; margin-top: 10px; }
+        .quiz-navigation { display: flex; justify-content: space-between; margin-top: 40px; }
+        .quiz-filters { margin-bottom: 20px; text-align: center; }
+        .quiz-filters button { background: #e0e0e0; border: none; padding: 8px 16px; margin: 0 5px; border-radius: 20px; cursor: pointer; transition: all 0.3s; }
+        .quiz-filters button.active { background: #bbdefb; color: #0d47a1; }
+        .nav-button { display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; transition: all 0.3s; }
+        .nav-button:hover { background: #1565c0; }
+        .category-label { display: inline-block; font-size: 12px; padding: 3px 8px; border-radius: 10px; margin-left: 10px; vertical-align: middle; }
+        .basic { background-color: #c8e6c9; color: #2e7d32; }
+        .intermediate { background-color: #ffecb3; color: #f57f17; }
+        .advanced { background-color: #ffcdd2; color: #c62828; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Kubernetes 网络知识自测</h1>
+        
+        <div class="quiz-description">
+            <p>本页面提供互动式测验题目，帮助您检验和巩固所学的 Kubernetes 网络知识。完成测验后可以看到您的得分和详细解析。</p>
+        </div>
+        
+        <div class="quiz-filters">
+            <button class="filter-button active" data-difficulty="all">全部</button>
+            <button class="filter-button" data-difficulty="basic">基础</button>
+            <button class="filter-button" data-difficulty="intermediate">中级</button>
+            <button class="filter-button" data-difficulty="advanced">高级</button>
+        </div>
+        
+        <form id="quizForm" class="quiz-container">
+            <div class="quiz-card" data-difficulty="basic">
+                <h3>问题 1: Kubernetes Pod 网络模型 <span class="category-label basic">基础</span></h3>
+                <p>在 Kubernetes 中，关于 Pod 网络模型的描述，以下哪项是<strong>不正确</strong>的？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q1" value="A"> A. 每个 Pod 都有自己的 IP 地址</label>
+                    <label><input type="radio" name="q1" value="B"> B. Pod 之间可以直接通信，无需通过 NAT</label>
+                    <label><input type="radio" name="q1" value="C"> C. Pod 的 IP 在整个集群中是唯一的</label>
+                    <label><input type="radio" name="q1" value="D"> D. Pod 内的所有容器共享相同的 IP 地址，但必须使用不同的端口</label>
+                    <label><input type="radio" name="q1" value="E"> E. Pod 的 IP 地址在重启后必须保持不变</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：E</strong></p>
+                    <p>Kubernetes Pod 网络模型的基本原则包括：每个 Pod 有自己的 IP；Pod 之间可以直接通信而不需要 NAT；节点和 Pod 之间可以直接通信；Pod 内部看到的 IP 与外部看到的相同。Pod 的 IP 地址在 Pod 重启后通常会改变，除非使用了特殊的静态 IP 分配机制。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="basic">
+                <h3>问题 2: CNI (容器网络接口) <span class="category-label basic">基础</span></h3>
+                <p>关于 Kubernetes 中的 CNI (容器网络接口)，以下哪项描述是正确的？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q2" value="A"> A. CNI 是 Kubernetes 的一个内置组件，负责为容器分配 IP 地址</label>
+                    <label><input type="radio" name="q2" value="B"> B. CNI 是一种规范，定义了容器运行时如何与网络插件交互</label>
+                    <label><input type="radio" name="q2" value="C"> C. CNI 只能在 Linux 上运行，不支持 Windows 容器</label>
+                    <label><input type="radio" name="q2" value="D"> D. CNI 仅支持 Overlay 网络模式，不支持直接路由</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：B</strong></p>
+                    <p>CNI (容器网络接口) 是一种规范或接口标准，它定义了容器运行时如何与网络插件交互来设置容器网络。它不是 Kubernetes 的内置组件，而是一个开放标准，允许不同的网络实现（如 Calico、Flannel、Weave 等）以标准方式与容器编排系统交互。CNI 支持多种网络模式，包括直接路由和 Overlay 网络，也可以在 Windows 上实现。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="intermediate">
+                <h3>问题 3: kube-proxy 工作模式 <span class="category-label intermediate">中级</span></h3>
+                <p>关于 Kubernetes 中 kube-proxy 的工作模式，下列哪项描述是正确的？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q3" value="A"> A. userspace 模式是目前推荐的默认模式，因为它最稳定</label>
+                    <label><input type="radio" name="q3" value="B"> B. iptables 模式使用 Linux iptables 规则实现服务的负载均衡</label>
+                    <label><input type="radio" name="q3" value="C"> C. IPVS 模式的性能总是比 iptables 模式差</label>
+                    <label><input type="radio" name="q3" value="D"> D. kube-proxy 只支持 TCP 流量，不支持 UDP</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：B</strong></p>
+                    <p>kube-proxy 有三种工作模式：userspace、iptables 和 IPVS。其中 iptables 模式是当前的默认模式，它使用 Linux iptables 规则来实现服务的负载均衡和网络代理功能。IPVS 模式在大规模集群中通常比 iptables 模式性能更好，因为它设计用于负载均衡并使用更高效的数据结构。kube-proxy 支持 TCP 和 UDP 流量。userspace 模式是最早的实现，但性能较差，不再推荐使用。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="intermediate">
+                <h3>问题 4: Service 类型 <span class="category-label intermediate">中级</span></h3>
+                <p>在以下 Kubernetes Service 类型中，哪种类型<strong>不需要</strong>集群外部负载均衡器的支持就可以将服务暴露到集群外？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q4" value="A"> A. ClusterIP</label>
+                    <label><input type="radio" name="q4" value="B"> B. LoadBalancer</label>
+                    <label><input type="radio" name="q4" value="C"> C. ExternalName</label>
+                    <label><input type="radio" name="q4" value="D"> D. NodePort</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：D</strong></p>
+                    <p>NodePort 类型的 Service 可以在不依赖外部负载均衡器的情况下将服务暴露到集群外。NodePort Service 会在集群的每个节点上开放一个特定端口，任何发送到该端口的流量都会被转发到相应的服务。LoadBalancer 类型需要云提供商的负载均衡器支持。ClusterIP 只在集群内部可访问。ExternalName 只提供 DNS CNAME 记录，不直接暴露服务。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="advanced">
+                <h3>问题 5: 网络命名空间和 veth 对 <span class="category-label advanced">高级</span></h3>
+                <p>关于 Linux 网络命名空间和 veth 对的关系，以下哪项描述是正确的？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q5" value="A"> A. veth 对只能连接相同网络命名空间内的设备</label>
+                    <label><input type="radio" name="q5" value="B"> B. 每个网络命名空间都必须至少有一个 veth 对</label>
+                    <label><input type="radio" name="q5" value="C"> C. veth 对的两端必须位于不同的网络命名空间中</label>
+                    <label><input type="radio" name="q5" value="D"> D. veth 对可以充当不同网络命名空间之间的通信管道</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：D</strong></p>
+                    <p>veth (虚拟以太网) 对是成对出现的虚拟网络接口，可以作为不同网络命名空间之间的通信管道，是连接容器网络命名空间和主机网络命名空间的常用方法。veth 对的两端可以位于同一个网络命名空间中，也可以位于不同的网络命名空间中。网络命名空间可以没有 veth 对（例如，刚创建的空命名空间），也可以包含多个 veth 对或其他类型的网络接口。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="advanced">
+                <h3>问题 6: Overlay 网络 <span class="category-label advanced">高级</span></h3>
+                <p>以下哪种 Overlay 网络技术<strong>不</strong>使用 UDP 封装？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q6" value="A"> A. VXLAN</label>
+                    <label><input type="radio" name="q6" value="B"> B. Geneve</label>
+                    <label><input type="radio" name="q6" value="C"> C. IP-in-IP</label>
+                    <label><input type="radio" name="q6" value="D"> D. Flannel's UDP backend</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：C</strong></p>
+                    <p>IP-in-IP 是一种 IP 隧道技术，它直接将一个 IP 数据包封装在另一个 IP 数据包中，不使用 UDP 封装。VXLAN、Geneve 和 Flannel 的 UDP 后端都使用 UDP 作为传输协议来封装原始数据包，以便在底层网络上传输。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="intermediate">
+                <h3>问题 7: 集群DNS <span class="category-label intermediate">中级</span></h3>
+                <p>关于 Kubernetes 集群 DNS（如 CoreDNS），以下哪项描述是<strong>不正确</strong>的？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q7" value="A"> A. 集群 DNS 负责将 Service 名称解析为 ClusterIP</label>
+                    <label><input type="radio" name="q7" value="B"> B. Pod 可以通过 DNS 查询访问集群外部域名</label>
+                    <label><input type="radio" name="q7" value="C"> C. 每个命名空间都有自己的 DNS 子域</label>
+                    <label><input type="radio" name="q7" value="D"> D. Pod 必须显式配置 DNS 服务器地址才能使用集群 DNS</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：D</strong></p>
+                    <p>在 Kubernetes 中，Pod 不需要显式配置 DNS 服务器地址就能使用集群 DNS。Kubernetes 会自动将 Pod 的 /etc/resolv.conf 配置为使用集群 DNS 服务（如 CoreDNS）。集群 DNS 确实负责将 Service 名称解析为 ClusterIP，允许 Pod 通过 DNS 查询访问集群外部域名，并且每个命名空间都有自己的 DNS 子域（格式为 service-name.namespace-name.svc.cluster.local）。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="basic">
+                <h3>问题 8: Pod IP 分配 <span class="category-label basic">基础</span></h3>
+                <p>在 Kubernetes 集群中，谁负责为 Pod 分配 IP 地址？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q8" value="A"> A. kube-apiserver</label>
+                    <label><input type="radio" name="q8" value="B"> B. kubelet</label>
+                    <label><input type="radio" name="q8" value="C"> C. CNI 插件</label>
+                    <label><input type="radio" name="q8" value="D"> D. kube-proxy</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：C</strong></p>
+                    <p>在 Kubernetes 集群中，CNI (容器网络接口) 插件负责为 Pod 分配 IP 地址。当 kubelet 创建一个 Pod 时，它会调用已配置的 CNI 插件来设置 Pod 的网络，包括分配 IP 地址、设置路由规则和其他必要的网络配置。不同的 CNI 插件（如 Calico、Flannel、Weave 等）有不同的 IP 分配策略。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="intermediate">
+                <h3>问题 9: Service 的 Endpoints <span class="category-label intermediate">中级</span></h3>
+                <p>关于 Kubernetes Service 的 Endpoints 资源，以下哪项描述是正确的？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q9" value="A"> A. Endpoints 资源必须手动创建</label>
+                    <label><input type="radio" name="q9" value="B"> B. Endpoints 包含了与 Service 关联的所有 Pod 的 IP 地址和端口</label>
+                    <label><input type="radio" name="q9" value="C"> C. 只有 ClusterIP 类型的 Service 才有 Endpoints</label>
+                    <label><input type="radio" name="q9" value="D"> D. Endpoints 是由 kube-proxy 创建和维护的</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：B</strong></p>
+                    <p>Endpoints 资源包含了与 Service 关联的所有 Pod 的 IP 地址和端口信息。通常，当创建带有选择器的 Service 时，Kubernetes 会自动创建和维护相应的 Endpoints 资源，无需手动创建。所有类型的 Service（不仅是 ClusterIP）都有 Endpoints。Endpoints 资源是由 Endpoint Controller（kube-controller-manager 的一部分）管理的，而不是 kube-proxy。</p>
+                </div>
+            </div>
+            
+            <div class="quiz-card" data-difficulty="advanced">
+                <h3>问题 10: 网络策略（NetworkPolicy） <span class="category-label advanced">高级</span></h3>
+                <p>关于 Kubernetes NetworkPolicy，以下哪项是<strong>不正确</strong>的？</p>
+                <div class="quiz-options">
+                    <label><input type="radio" name="q10" value="A"> A. NetworkPolicy 是命名空间作用域的资源</label>
+                    <label><input type="radio" name="q10" value="B"> B. 所有集群中的 CNI 插件都必须支持 NetworkPolicy</label>
+                    <label><input type="radio" name="q10" value="C"> C. NetworkPolicy 可以基于 Pod 标签选择目标 Pod</label>
+                    <label><input type="radio" name="q10" value="D"> D. NetworkPolicy 可以单独控制入站和出站流量</label>
+                </div>
+                <div class="explanation" style="display: none;">
+                    <p><strong>正确答案：B</strong></p>
+                    <p>并非所有的 CNI 插件都支持 NetworkPolicy。NetworkPolicy 的实现是由底层网络插件提供的，一些 CNI 插件如 Calico、Cilium、Weave 等支持 NetworkPolicy，但其他如基本的 Flannel 不直接支持（需要与其他解决方案组合）。NetworkPolicy 确实是命名空间作用域的资源，可以基于 Pod 标签选择目标 Pod，并且可以单独控制入站和出站流量。</p>
+                </div>
+            </div>
+            
+            <button type="button" id="submitQuiz" class="submit-button">提交答案</button>
+        </form>
+        
+        <div id="resultsContainer" class="results-container">
+            <h3>测验结果</h3>
+            <p>您的得分：<span id="score"></span>/10</p>
+            <div id="resultDetails"></div>
+            <button type="button" id="retakeQuiz" class="submit-button" style="margin-top: 20px;">重新测试</button>
+        </div>
+        
+        <div class="quiz-navigation">
+            <a href="index.html" class="nav-button">返回首页</a>
+            <a href="toc.html" class="nav-button">目录导航</a>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const quizForm = document.getElementById('quizForm');
+            const submitButton = document.getElementById('submitQuiz');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const scoreElement = document.getElementById('score');
+            const resultDetails = document.getElementById('resultDetails');
+            const retakeButton = document.getElementById('retakeQuiz');
+            const filterButtons = document.querySelectorAll('.filter-button');
+            const quizCards = document.querySelectorAll('.quiz-card');
+            
+            const correctAnswers = {
+                q1: 'E',
+                q2: 'B',
+                q3: 'B',
+                q4: 'D',
+                q5: 'D',
+                q6: 'C',
+                q7: 'D',
+                q8: 'C',
+                q9: 'B',
+                q10: 'B'
+            };
+            
+            // 过滤题目按难度
+            filterButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const difficulty = this.getAttribute('data-difficulty');
+                    
+                    // 更新按钮样式
+                    filterButtons.forEach(btn => btn.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // 显示/隐藏题目
+                    quizCards.forEach(card => {
+                        if (difficulty === 'all' || card.getAttribute('data-difficulty') === difficulty) {
+                            card.style.display = 'block';
+                        } else {
+                            card.style.display = 'none';
+                        }
+                    });
+                });
+            });
+            
+            // 提交测验
+            submitButton.addEventListener('click', function() {
+                let score = 0;
+                let resultHTML = '';
+                
+                // 检查每个问题的答案
+                for (let i = 1; i <= 10; i++) {
+                    const questionName = `q${i}`;
+                    const selectedAnswer = document.querySelector(`input[name="${questionName}"]:checked`);
+                    
+                    if (selectedAnswer && selectedAnswer.value === correctAnswers[questionName]) {
+                        score++;
+                        resultHTML += `<p>问题 ${i}: <span class="result-correct">正确</span></p>`;
+                    } else {
+                        resultHTML += `<p>问题 ${i}: <span class="result-incorrect">错误</span>，正确答案是 ${correctAnswers[questionName]}</p>`;
+                    }
+                    
+                    // 显示解析
+                    const explanation = document.querySelector(`input[name="${questionName}"]`).closest('.quiz-card').querySelector('.explanation');
+                    explanation.style.display = 'block';
+                }
+                
+                // 显示结果
+                scoreElement.textContent = score;
+                resultDetails.innerHTML = resultHTML;
+                quizForm.style.display = 'none';
+                resultsContainer.style.display = 'block';
+            });
+            
+            // 重新测试
+            retakeButton.addEventListener('click', function() {
+                // 重置表单
+                quizForm.reset();
+                
+                // 隐藏解析
+                document.querySelectorAll('.explanation').forEach(el => {
+                    el.style.display = 'none';
+                });
+                
+                // 显示表单，隐藏结果
+                quizForm.style.display = 'block';
+                resultsContainer.style.display = 'none';
+            });
+            
+            // 记录阅读进度
+            localStorage.setItem('read_' + window.location.href, 'true');
+        });
+    </script>
+</body>
+</html> 

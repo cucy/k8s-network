@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes 服务流量排查工具 - Kubernetes网络学习指南</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        body { font-family: Arial, sans-serif; background: #f9f9f9; }
+        .container { max-width: 1000px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 10px; box-shadow: 0 2px 8px #0001; }
+        h1 { text-align: center; margin-bottom: 32px; color: #1976d2; }
+        h2 { margin-top: 30px; color: #2196f3; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; }
+        h3 { margin-top: 25px; color: #0d47a1; }
+        .tool-description { line-height: 1.6; margin-bottom: 30px; }
+        pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        code { font-family: 'Courier New', Courier, monospace; background: #f5f5f5; padding: 2px 5px; border-radius: 3px; }
+        .nav-buttons { display: flex; justify-content: space-between; margin-top: 40px; }
+        .nav-button { display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; transition: all 0.3s; }
+        .nav-button:hover { background: #1565c0; }
+        .case-study { background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 30px 0; }
+        .case-study h3 { margin-top: 0; }
+        .parameter-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        .parameter-table th, .parameter-table td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        .parameter-table th { background-color: #f5f5f5; }
+        .parameter-table tr:nth-child(even) { background-color: #f9f9f9; }
+        .download-button { display: inline-block; background: #4caf50; color: white; padding: 12px 25px; border-radius: 30px; text-decoration: none; font-weight: bold; margin: 20px 0; transition: all 0.3s; }
+        .download-button:hover { background: #388e3c; transform: translateY(-2px); }
+        .tip-box { background: #fff8e1; border-left: 5px solid #ffc107; padding: 15px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Kubernetes 服务流量排查工具</h1>
+        
+        <div class="tool-description">
+            <p>本工具用于快速诊断 Kubernetes 集群中服务的流量问题，帮助 SRE 和运维人员在用户反馈服务无法访问或访问异常时进行系统化排查。通过一系列检查，它能够自动识别常见问题并提供清晰的错误提示和解决建议。</p>
+            
+            <a href="k8s-service-check.sh" class="download-button" download>下载工具脚本</a>
+        </div>
+        
+        <h2>功能特点</h2>
+        <ul>
+            <li><strong>全面检查</strong>: 从 Kubernetes 对象、网络连通性到应用层响应进行全方位检查</li>
+            <li><strong>自动诊断</strong>: 自动识别常见问题并提供清晰的错误提示</li>
+            <li><strong>详细报告</strong>: 生成完整的诊断报告，包括问题摘要和建议的后续步骤</li>
+            <li><strong>临时诊断Pod</strong>: 自动创建和清理临时诊断 Pod，用于集群内部测试</li>
+            <li><strong>支持多种协议</strong>: 支持 HTTP、HTTPS 和 TCP 服务的检查</li>
+        </ul>
+        
+        <h2>使用方法</h2>
+        
+        <h3>基本用法</h3>
+        <pre><code>./k8s-service-check.sh -s &lt;service_name&gt; -n &lt;namespace&gt;</code></pre>
+        
+        <h3>完整参数</h3>
+        <pre><code>./k8s-service-check.sh -s &lt;service_name&gt; -n &lt;namespace&gt; [-p &lt;protocol&gt;] [-o &lt;port&gt;] [-i &lt;ingress_host&gt;] [-h &lt;health_check_path&gt;]</code></pre>
+        
+        <table class="parameter-table">
+            <tr>
+                <th>参数</th>
+                <th>说明</th>
+                <th>是否必填</th>
+                <th>默认值</th>
+            </tr>
+            <tr>
+                <td><code>-s, --service</code></td>
+                <td>服务名称</td>
+                <td>是</td>
+                <td>-</td>
+            </tr>
+            <tr>
+                <td><code>-n, --namespace</code></td>
+                <td>命名空间</td>
+                <td>是</td>
+                <td>-</td>
+            </tr>
+            <tr>
+                <td><code>-p, --protocol</code></td>
+                <td>协议类型 (http|https|tcp)</td>
+                <td>否</td>
+                <td>http</td>
+            </tr>
+            <tr>
+                <td><code>-o, --port</code></td>
+                <td>服务端口</td>
+                <td>否</td>
+                <td>80</td>
+            </tr>
+            <tr>
+                <td><code>-i, --ingress</code></td>
+                <td>Ingress 主机名（如果通过 Ingress 暴露）</td>
+                <td>否</td>
+                <td>-</td>
+            </tr>
+            <tr>
+                <td><code>-h, --health</code></td>
+                <td>健康检查路径（HTTP/HTTPS 服务）</td>
+                <td>否</td>
+                <td>/</td>
+            </tr>
+        </table>
+        
+        <h3>使用示例</h3>
+        
+        <h4>1. 检查默认命名空间中的 nginx 服务（HTTP 协议，端口 80）:</h4>
+        <pre><code>./k8s-service-check.sh -s nginx -n default</code></pre>
+        
+        <h4>2. 检查 API 服务（HTTPS 协议，端口 443，健康检查路径 /healthz）:</h4>
+        <pre><code>./k8s-service-check.sh -s my-api -n api-system -p https -o 443 -h /healthz</code></pre>
+        
+        <h4>3. 检查通过 Ingress 暴露的 Web 应用:</h4>
+        <pre><code>./k8s-service-check.sh -s web-app -n frontend -i webapp.example.com</code></pre>
+        
+        <div class="tip-box">
+            <strong>提示：</strong> 如果您的集群环境特殊，可能需要修改脚本中的诊断 Pod 镜像。默认使用 <code>nicolaka/netshoot</code> 镜像，您可以根据需要替换为其他具有网络诊断工具的镜像。
+        </div>
+        
+        <h2>检查内容</h2>
+        
+        <h3>1. Kubernetes 对象检查</h3>
+        <ul>
+            <li>服务是否存在</li>
+            <li>服务类型是否符合预期</li>
+            <li>服务选择器是否匹配到 Pod</li>
+            <li>Pod 是否处于 Running 状态</li>
+            <li>Pod 是否就绪（Ready）</li>
+            <li>服务是否有可用的 Endpoints</li>
+            <li>是否存在可能阻止流量的 NetworkPolicy</li>
+            <li>Ingress 配置是否正确（如果提供了 Ingress 主机名）</li>
+        </ul>
+        
+        <h3>2. 网络连通性检查</h3>
+        <ul>
+            <li>DNS 解析：服务名是否能解析到正确的 ClusterIP</li>
+            <li>服务连通性：是否能连接到服务的 ClusterIP 和端口</li>
+            <li>Pod 连通性：是否能直接连接到后端 Pod 的 IP 和端口</li>
+            <li>Ingress 连通性：是否能通过 Ingress 主机名访问服务（如果适用）</li>
+        </ul>
+        
+        <h3>3. 应用层检查</h3>
+        <ul>
+            <li>对于 HTTP/HTTPS 服务：健康检查路径是否返回成功状态码</li>
+            <li>对于 TCP 服务：是否能建立 TCP 连接</li>
+        </ul>
+        
+        <h2>实际案例分析</h2>
+        
+        <div class="case-study">
+            <h3>案例 1：服务选择器配置错误</h3>
+            <p><strong>症状：</strong> 服务无法访问，没有可用的 Endpoints</p>
+            <p><strong>排查过程：</strong></p>
+            <ol>
+                <li>运行工具检查服务：<code>./k8s-service-check.sh -s frontend -n webapp</code></li>
+                <li>工具输出问题：<code>WARNING: Service selector 'app=frontend' doesn't match any pods</code></li>
+                <li>进一步检查 Pod 标签：<code>kubectl get pods -n webapp --show-labels</code></li>
+                <li>发现 Pod 标签是 <code>app=frontend-v2</code>，而不是 <code>app=frontend</code></li>
+            </ol>
+            <p><strong>解决方案：</strong> 更新服务选择器以匹配正确的 Pod 标签</p>
+            <pre><code>kubectl patch svc frontend -n webapp -p '{"spec":{"selector":{"app":"frontend-v2"}}}'</code></pre>
+        </div>
+        
+        <div class="case-study">
+            <h3>案例 2：NetworkPolicy 阻止流量</h3>
+            <p><strong>症状：</strong> 服务有 Endpoints，但从某些命名空间无法访问</p>
+            <p><strong>排查过程：</strong></p>
+            <ol>
+                <li>运行工具检查连通性：<code>./k8s-service-check.sh -s api -n backend</code></li>
+                <li>工具输出警告：<code>WARNING: Found restrictive NetworkPolicy that may block service traffic</code></li>
+                <li>检查 NetworkPolicy：<code>kubectl get networkpolicy -n backend</code></li>
+                <li>发现存在仅允许特定命名空间访问的 NetworkPolicy</li>
+            </ol>
+            <p><strong>解决方案：</strong> 更新 NetworkPolicy 以允许来自所需来源的流量：</p>
+            <pre><code>kubectl edit networkpolicy api-access -n backend</code></pre>
+            <p>添加所需的命名空间标签到 <code>namespaceSelector</code> 规则中。</p>
+        </div>
+        
+        <h2>常见问题排查</h2>
+        
+        <h3>服务无法访问的常见原因</h3>
+        
+        <h4>1. 服务配置问题</h4>
+        <ul>
+            <li>服务选择器与 Pod 标签不匹配</li>
+            <li>服务端口配置错误</li>
+            <li>服务类型不符合预期（如需要 NodePort 但配置为 ClusterIP）</li>
+        </ul>
+        
+        <h4>2. Pod 问题</h4>
+        <ul>
+            <li>Pod 未处于 Running 状态</li>
+            <li>Pod 未通过就绪检查（Readiness Probe）</li>
+            <li>容器内应用未正确监听端口</li>
+        </ul>
+        
+        <h4>3. 网络问题</h4>
+        <ul>
+            <li>NetworkPolicy 阻止了流量</li>
+            <li>kube-proxy 配置错误或未正常工作</li>
+            <li>集群网络插件（CNI）问题</li>
+            <li>节点防火墙规则阻止了流量</li>
+        </ul>
+        
+        <h4>4. Ingress 问题</h4>
+        <ul>
+            <li>Ingress 配置错误</li>
+            <li>Ingress Controller 未正常工作</li>
+            <li>TLS 证书问题（HTTPS）</li>
+            <li>DNS 解析问题</li>
+        </ul>
+        
+        <h3>高级排查技巧</h3>
+        
+        <p>有时候，自动化工具可能无法发现所有问题。以下是一些手动排查技巧：</p>
+        
+        <ol>
+            <li><strong>检查 Pod 日志</strong>
+            <pre><code>kubectl logs -n &lt;namespace&gt; &lt;pod-name&gt;</code></pre>
+            </li>
+            
+            <li><strong>检查 Pod 内部网络配置</strong>
+            <pre><code>kubectl exec -it -n &lt;namespace&gt; &lt;pod-name&gt; -- ip addr
+kubectl exec -it -n &lt;namespace&gt; &lt;pod-name&gt; -- netstat -tuln</code></pre>
+            </li>
+            
+            <li><strong>检查 kube-proxy 日志</strong>
+            <pre><code>kubectl logs -n kube-system -l k8s-app=kube-proxy</code></pre>
+            </li>
+            
+            <li><strong>检查节点上的 iptables 规则</strong>
+            <pre><code>kubectl debug node/&lt;node-name&gt; -it --image=nicolaka/netshoot -- iptables-save | grep &lt;service-name&gt;</code></pre>
+            </li>
+            
+            <li><strong>使用 tcpdump 捕获网络流量</strong>
+            <pre><code>kubectl debug node/&lt;node-name&gt; -it --image=nicolaka/netshoot -- tcpdump -i any port &lt;port&gt;</code></pre>
+            </li>
+        </ol>
+        
+        <div class="nav-buttons">
+            <a href="toc.html" class="nav-button">返回目录</a>
+            <a href="network-troubleshooting.html" class="nav-button">网络故障排查</a>
+        </div>
+    </div>
+    
+    <script>
+        // 记录阅读进度
+        document.addEventListener('DOMContentLoaded', function() {
+            localStorage.setItem('read_' + window.location.href, 'true');
+        });
+    </script>
+</body>
+</html> 

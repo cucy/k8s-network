@@ -3,69 +3,206 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>目录导航 - Kubernetes网络学习指南</title>
+    <title>Kubernetes 网络学习指南</title>
     <link rel="stylesheet" href="css/style.css">
     <style>
         body { font-family: Arial, sans-serif; background: #f9f9f9; }
-        .container { max-width: 700px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 10px; box-shadow: 0 2px 8px #0001; }
+        .container { max-width: 1000px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 10px; box-shadow: 0 2px 8px #0001; }
         h1 { text-align: center; margin-bottom: 32px; color: #1976d2; }
-        ul.toc-list { list-style: none; padding: 0; }
-        ul.toc-list li { margin: 12px 0; }
-        ul.toc-list li a { font-size: 1.08em; color: #1976d2; text-decoration: none; padding: 6px 0; display: inline-block; transition: color 0.2s; }
-        ul.toc-list li a:hover { color: #388e3c; text-decoration: underline; }
+        .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 30px; }
+        .category-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; transition: all 0.3s; }
+        .category-card:hover { box-shadow: 0 5px 15px rgba(0,0,0,0.1); transform: translateY(-3px); }
+        .category-card h2 { color: #1976d2; margin-top: 0; font-size: 1.4em; border-bottom: 2px solid #e3f2fd; padding-bottom: 10px; }
+        .category-card ul { list-style: none; padding-left: 10px; }
+        .category-card li { margin: 8px 0; }
+        .category-card a { color: #555; text-decoration: none; display: inline-block; padding: 3px 0; transition: all 0.2s; }
+        .category-card a:hover { color: #1976d2; transform: translateX(3px); }
+        .intro-text { line-height: 1.6; margin-bottom: 30px; }
+        .search-container { margin: 20px auto 30px; max-width: 600px; }
+        .search-input { width: 100%; padding: 12px 15px; border: 1px solid #ddd; border-radius: 30px; font-size: 16px; outline: none; transition: all 0.3s; }
+        .search-input:focus { border-color: #1976d2; box-shadow: 0 0 8px rgba(25, 118, 210, 0.3); }
+        .button-container { text-align: center; margin-top: 40px; }
+        .button { display: inline-block; background: #1976d2; color: white; padding: 12px 25px; border-radius: 30px; text-decoration: none; font-weight: bold; transition: all 0.3s; }
+        .button:hover { background: #1565c0; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .version-info { background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 30px 0; }
+        .version-info h3 { margin-top: 0; }
+        .progress-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+        .basic { background-color: #4caf50; }
+        .intermediate { background-color: #ff9800; }
+        .advanced { background-color: #f44336; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>目录导航</h1>
-        <ul class="toc-list">
-            <li><a href="index1.html">首页</a></li>
-            <li><a href="calico-bgp.html">Calico BGP模式</a></li>
-            <li><a href="calico-ipinip.html">Calico IPinIP模式</a></li>
-            <li><a href="calico-vxlan.html">Calico VXLAN模式</a></li>
-            <li><a href="calico-wireguard.html">Calico WireGuard模式</a></li>
-            <li><a href="cni-overlay-integration.html">CNI与Overlay集成</a></li>
-            <li><a href="cni.html">CNI 插件</a></li>
-            <li><a href="cross-node-networking.html">跨节点网络</a></li>
-            <li><a href="ebpf-networking.html">eBPF 网络</a></li>
-            <li><a href="experiments.html">动手实验</a></li>
-            <li><a href="flannel-vxlan.html">Flannel VXLAN</a></li>
-            <li><a href="geneve-technology.html">Geneve 技术</a></li>
-            <li><a href="ingress.html">Ingress</a></li>
-            <li><a href="network-bridges.html">网络桥接</a></li>
-            <li><a href="network-namespaces.html">网络命名空间</a></li>
-            <li><a href="network-troubleshooting.html">网络故障排查</a></li>
-            <li><a href="overlay-networks.html">Overlay 网络</a></li>
-            <li><a href="pod-internal-networking.html">Pod 内部网络</a></li>
-            <li><a href="pod-ip-allocation.html">Pod IP分配</a></li>
-            <li><a href="pod-network.html">Pod 网络</a></li>
-            <li><a href="pod-to-pod-networking.html">Pod间网络通信</a></li>
-            <li><a href="service-network.html">Service 网络</a></li>
-            <li><a href="veth-advanced-topologies.html">veth高级拓扑</a></li>
-            <li><a href="veth-bridge-topology.html">veth桥接拓扑</a></li>
-            <li><a href="veth-creation.html">veth创建</a></li>
-            <li><a href="veth-hybrid-topology.html">veth混合拓扑</a></li>
-            <li><a href="veth-namespaces-basics.html">veth命名空间基础</a></li>
-            <li><a href="veth-pairs.html">veth对</a></li>
-            <li><a href="veth-ring-topology.html">veth环形拓扑</a></li>
-            <li><a href="veth-routing-advanced.html">veth高级路由</a></li>
-            <li><a href="veth-routing-dynamic-bgp.html">veth动态BGP路由</a></li>
-            <li><a href="veth-routing-dynamic-ospf-advanced.html">veth动态OSPF高级</a></li>
-            <li><a href="veth-routing-dynamic-ospf-basic.html">veth动态OSPF基础</a></li>
-            <li><a href="veth-routing-dynamic-ospf.html">veth动态OSPF</a></li>
-            <li><a href="veth-routing-dynamic-rip.html">veth动态RIP路由</a></li>
-            <li><a href="veth-routing-dynamic.html">veth动态路由</a></li>
-            <li><a href="veth-routing-policy.html">veth路由策略</a></li>
-            <li><a href="veth-routing-static-advanced.html">veth静态路由高级</a></li>
-            <li><a href="veth-routing-static-basic.html">veth静态路由基础</a></li>
-            <li><a href="veth-routing-static-multipath.html">veth静态多路径</a></li>
-            <li><a href="veth-routing-static.html">veth静态路由</a></li>
-            <li><a href="veth-security.html">veth安全</a></li>
-            <li><a href="veth-star-topology-advanced.html">veth星型拓扑高级</a></li>
-            <li><a href="veth-star-topology.html">veth星型拓扑</a></li>
-            <li><a href="veth-triangle-topology.html">veth三角拓扑</a></li>
-            <li><a href="wireguard-overlay.html">WireGuard 技术</a></li>
-        </ul>
+        <h1>Kubernetes 网络学习指南</h1>
+
+        <div class="search-container">
+            <input type="text" class="search-input" id="searchInput" placeholder="搜索内容..." onkeyup="searchContent()">
+        </div>
+
+        <div class="intro-text">
+            <p>欢迎来到 Kubernetes 网络学习指南！本指南将带您深入了解 Kubernetes 网络的各个方面，从基础概念到高级实现。无论您是初学者还是有经验的云原生工程师，都能在这里找到有价值的内容。</p>
+            
+            <p>Kubernetes 网络模型基于以下四个基本原则:</p>
+            <ul>
+                <li><strong>所有 Pod 之间可以不通过 NAT 直接通信</strong></li>
+                <li><strong>所有节点可以不通过 NAT 与所有 Pod 通信</strong></li>
+                <li><strong>Pod 内部的 IP 地址与其他 Pod 或节点看到的相同</strong></li>
+                <li><strong>每个 Pod 都有自己的 IP 地址</strong></li>
+            </ul>
+        </div>
+
+        <div class="version-info">
+            <h3>版本兼容性说明</h3>
+            <p>本教程中的内容主要基于 Kubernetes v1.25+ 版本。某些网络特性可能随着 Kubernetes 版本的不同而变化。我们会尽可能注明特定功能的版本要求。</p>
+            <div class="legend-small" style="margin-top:10px;">
+                <span><span class="progress-indicator basic"></span> 基础</span>
+                <span style="margin-left:15px;"><span class="progress-indicator intermediate"></span> 中级</span>
+                <span style="margin-left:15px;"><span class="progress-indicator advanced"></span> 高级</span>
+            </div>
+        </div>
+
+        <div class="category-grid">
+            <div class="category-card">
+                <h2>网络基础</h2>
+                <ul>
+                    <li><span class="progress-indicator basic"></span><a href="network-namespaces.html">网络命名空间</a></li>
+                    <li><span class="progress-indicator basic"></span><a href="network-bridges.html">网络桥接</a></li>
+                </ul>
+            </div>
+
+            <div class="category-card">
+                <h2>虚拟以太网 (veth)</h2>
+                <ul>
+                    <li><span class="progress-indicator basic"></span><a href="veth-creation.html">veth创建</a></li>
+                    <li><span class="progress-indicator basic"></span><a href="veth-pairs.html">veth对</a></li>
+                    <li><span class="progress-indicator basic"></span><a href="veth-namespaces-basics.html">veth命名空间基础</a></li>
+                    <li><a href="toc.html#veth">更多veth主题...</a></li>
+                </ul>
+            </div>
+
+            <div class="category-card">
+                <h2>Pod 网络</h2>
+                <ul>
+                    <li><span class="progress-indicator basic"></span><a href="pod-network.html">Pod 网络概述</a></li>
+                    <li><span class="progress-indicator intermediate"></span><a href="pod-internal-networking.html">Pod 内部网络</a></li>
+                    <li><span class="progress-indicator intermediate"></span><a href="pod-ip-allocation.html">Pod IP分配</a></li>
+                    <li><span class="progress-indicator intermediate"></span><a href="pod-to-pod-networking.html">Pod间网络通信</a></li>
+                </ul>
+            </div>
+
+            <div class="category-card">
+                <h2>Service 网络</h2>
+                <ul>
+                    <li><span class="progress-indicator basic"></span><a href="service-network.html">Service 网络概述</a></li>
+                    <li><span class="progress-indicator intermediate"></span><a href="service-clusterip.html">ClusterIP Service</a></li>
+                    <li><span class="progress-indicator intermediate"></span><a href="service-nodeport.html">NodePort Service</a></li>
+                    <li><a href="toc.html#service-network">更多Service类型...</a></li>
+                </ul>
+            </div>
+
+            <div class="category-card">
+                <h2>CNI 和 Overlay 网络</h2>
+                <ul>
+                    <li><span class="progress-indicator basic"></span><a href="cni.html">CNI 插件</a></li>
+                    <li><span class="progress-indicator basic"></span><a href="overlay-networks.html">Overlay 网络概述</a></li>
+                    <li><span class="progress-indicator intermediate"></span><a href="flannel-vxlan.html">Flannel VXLAN</a></li>
+                    <li><a href="toc.html#cni-overlay">更多CNI和Overlay...</a></li>
+                </ul>
+            </div>
+
+            <div class="category-card">
+                <h2>高级网络技术</h2>
+                <ul>
+                    <li><span class="progress-indicator advanced"></span><a href="ebpf-networking.html">eBPF 网络</a></li>
+                    <li><span class="progress-indicator advanced"></span><a href="wireguard-overlay.html">WireGuard 技术</a></li>
+                    <li><span class="progress-indicator advanced"></span><a href="geneve-technology.html">Geneve 技术</a></li>
+                </ul>
+            </div>
+
+            <div class="category-card">
+                <h2>对外服务</h2>
+                <ul>
+                    <li><span class="progress-indicator intermediate"></span><a href="ingress.html">Ingress</a></li>
+                    <li><span class="progress-indicator advanced"></span><a href="service-loadbalancer.html">LoadBalancer Service</a></li>
+                </ul>
+            </div>
+
+            <div class="category-card">
+                <h2>故障排查</h2>
+                <ul>
+                    <li><span class="progress-indicator intermediate"></span><a href="network-troubleshooting.html">网络故障排查</a></li>
+                    <li><span class="progress-indicator advanced"></span><a href="advanced-troubleshooting.html">高级故障排查</a></li>
+                    <li><span class="progress-indicator intermediate"></span><a href="service-troubleshooting-tool.html">服务流量排查工具</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="button-container">
+            <a href="toc.html" class="button">查看完整目录</a>
+            <a href="experiments.html" class="button" style="margin-left: 15px;">动手实验</a>
+            <a href="network-knowledge-map.html" class="button" style="margin-left: 15px;">网络知识图谱</a>
+            <a href="knowledge-quiz.html" class="button" style="margin-left: 15px; background: #4caf50;">知识自测</a>
+        </div>
     </div>
+
+    <script>
+    function searchContent() {
+        // 获取输入值
+        var input = document.getElementById("searchInput");
+        var filter = input.value.toUpperCase();
+        
+        // 如果有足够的字符才开始搜索
+        if (filter.length < 2) {
+            // 显示所有卡片
+            var cards = document.getElementsByClassName("category-card");
+            for (var i = 0; i < cards.length; i++) {
+                cards[i].style.display = "";
+            }
+            return;
+        }
+        
+        // 搜索链接文本
+        var links = document.getElementsByTagName("a");
+        var foundInCard = {};
+        
+        for (var i = 0; i < links.length; i++) {
+            var txtValue = links[i].textContent || links[i].innerText;
+            var card = links[i].closest('.category-card');
+            
+            if (card) {
+                var cardId = Array.from(card.parentNode.children).indexOf(card);
+                
+                if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                    foundInCard[cardId] = true;
+                    links[i].style.display = "";
+                } else {
+                    links[i].style.display = txtValue.startsWith("更多") ? "" : "none";
+                }
+            }
+        }
+        
+        // 显示/隐藏卡片
+        var cards = document.getElementsByClassName("category-card");
+        for (var i = 0; i < cards.length; i++) {
+            cards[i].style.display = foundInCard[i] ? "" : "none";
+        }
+    }
+    
+    // 记录阅读进度
+    document.addEventListener('DOMContentLoaded', function() {
+        const links = document.querySelectorAll('a');
+        links.forEach(link => {
+            // 检查是否已阅读过此页面
+            if (localStorage.getItem('read_' + link.href)) {
+                link.style.color = '#388e3c';
+            }
+            
+            link.addEventListener('click', function() {
+                localStorage.setItem('read_' + this.href, 'true');
+            });
+        });
+    });
+    </script>
 </body>
 </html>
